@@ -102,50 +102,6 @@ mod tests {
     fn run() {
         loop_wrap(|_| {});
     }
-
-    #[test]
-    fn add_remove() {
-        loop_wrap(|chan| {
-            let dev = Device {
-                addr: Addr::Dns(String::from("localhost"), 8000),
-                chan: IoChan::new_pair().0,
-            };
-
-            let devid;
-            chan.tx.send(EvtTx::Add(dev)).unwrap();
-            match chan.rx.recv().unwrap() {
-                EvtRx::Added(res) => {
-                    match res {
-                        Ok(id) => devid = id,
-                        Err(_) => panic!("add failed"),
-                    }
-                },
-                _ => unreachable!(),
-            }
-
-            chan.tx.send(EvtTx::Remove(devid + 1)).unwrap();
-            match chan.rx.recv().unwrap() {
-                EvtRx::Removed(res) => {
-                    match res {
-                        Ok(_) => panic!("remove must fail"),
-                        Err(_) => (),
-                    }
-                },
-                _ => unreachable!(),
-            }
-
-            chan.tx.send(EvtTx::Remove(devid)).unwrap();
-            match chan.rx.recv().unwrap() {
-                EvtRx::Removed(res) => {
-                    match res {
-                        Ok(_) => (),
-                        Err(_) => panic!("remove failed"),
-                    }
-                },
-                _ => unreachable!(),
-            }
-        });
-    }
 }
 
 

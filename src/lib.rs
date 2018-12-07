@@ -3,8 +3,9 @@ pub mod driver;
 mod event_loop;
 
 extern crate mio;
+extern crate mio_extras;
 
-use std::sync::mpsc;
+use mio_extras::channel as mpsc;
 use std::net::IpAddr;
 
 
