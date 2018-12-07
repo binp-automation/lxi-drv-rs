@@ -8,7 +8,7 @@ use ::*;
 use ::device::*;
 use ::event_loop::{EventLoop, EvtTx, EvtRx};
 
-
+#[derive(Debug)]
 pub struct Driver {
     thr: Option<thread::JoinHandle<()>>,
     chan: Mutex<IoChan<EvtTx, EvtRx>>,

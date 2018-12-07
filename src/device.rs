@@ -3,7 +3,7 @@ use std::net::{IpAddr};
 use ::*;
 
 
-pub type DevId = u32;
+pub type DevId = usize;
 
 #[derive(Debug)]
 pub enum DevTx {
@@ -18,6 +18,7 @@ pub enum DevRx {
     Data(Result<Vec<u8>, Error>)
 }
 
+#[derive(Debug)]
 pub struct Device {
     pub addr: Addr,
     pub chan: IoChan<DevRx, DevTx>,
