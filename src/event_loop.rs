@@ -3,22 +3,23 @@ use std::net::{TcpStream};
 use std::sync::mpsc::{TryRecvError};
 
 use mio::*;
+use mio_extras::channel::{Sender, Receiver};
 
-use ::*;
 use ::device::*;
+use ::driver::{DrvCmd};
 
 #[derive(Debug)]
-pub enum EvtTx {
-    Term,
-    Add(Device),
-    Remove(DevId),
+pub enum Error {
+    Io(std::io::Error),
 }
 
 #[derive(Debug)]
-pub enum EvtRx {
-    Added(Result<DevId, Error>),
-    Removed(Result<(), Error>),
+pub enum LoopError {
+    IdPresent(usize),
+    IdMissing(usize),
+    TryRecv(TryRecvError),
 }
+
 
 const TOKEN_GRAN_BITS: usize = 1;
 const TOKEN_GRAN_MASK: usize = (1<<TOKEN_GRAN_BITS) - 1;
@@ -26,93 +27,91 @@ const TOKEN_GRAN_MASK: usize = (1<<TOKEN_GRAN_BITS) - 1;
 #[allow(dead_code)]
 struct DevExt {
     base: Device,
+    tx: Sender<DevRx>,
+    rx: Receiver<DevTx>,
     sock: Option<TcpStream>,
 }
 
 impl DevExt {
-    fn new(base: Device) -> DevExt {
+    fn new(base: Device, tx: Sender<DevRx>, rx: Receiver<DevTx>) -> DevExt {
         DevExt {
-            base,
+            base, tx, rx,
             sock: None,
         }
     }
 }
 
 pub struct EventLoop {
-    chan: IoChan<EvtRx, EvtTx>,
-    devs: BTreeMap<DevId, DevExt>,
-    idcnt: DevId,
+    rx: Receiver<DrvCmd>,
+    devs: BTreeMap<usize, DevExt>,
+    idcnt: usize,
     poll: Poll,
 }
 
 enum LoopCmd {
     Break,
+    Error(LoopError),
 }
 
 impl EventLoop {
-    pub fn new(chan: IoChan<EvtRx, EvtTx>) -> Self {
-        let poll = Poll::new().unwrap();
-        poll.register(&chan.rx, Token(1), Ready::readable(), PollOpt::edge()).unwrap();
-        EventLoop {
-            chan,
+    pub fn new(rx: Receiver<DrvCmd>) -> Result<Self, Error> {
+        let poll = Poll::new().map_err(|e| Error::Io(e))?;
+        poll.register(&rx, Token(1), Ready::readable(), PollOpt::edge()).unwrap();
+        Ok(EventLoop {
+            rx,
             devs: BTreeMap::new(),
             idcnt: 1,
             poll,
-        }
+        })
     }
 
-    fn add_device(&mut self, device: Device) -> Result<DevId, Error> {
+    fn add_device(&mut self, dev: DevExt) -> Result<usize, LoopError> {
         let id = self.idcnt;
         self.idcnt += 1;
-        let de = DevExt::new(device);
-        if let Some(_) = self.devs.insert(id, de) {
-            unreachable!();
+        if let Some(_) = self.devs.insert(id, dev) {
+            Err(LoopError::IdPresent(id))
+        } else {
+            Ok(id)
         }
-        Ok(id)
     }
 
-    fn remove_device(&mut self, id: DevId) -> Result<(), Error> {
+    fn remove_device(&mut self, id: usize) -> Result<(), LoopError> {
         match self.devs.remove(&id) {
             Some(_) => Ok(()),
-            None => Err(Error::Other(format!("No such id: {}", id))),
+            None => Err(LoopError::IdMissing(id)),
         }
     }
 
     fn handle_self_chan(&mut self) -> Option<LoopCmd> {
         loop {
-            let res = self.chan.rx.try_recv();
-            match res {
+            match self.rx.try_recv() {
                 Ok(evt) => match evt {
-                    EvtTx::Term => break Some(LoopCmd::Break),
-                    EvtTx::Add(dev) => {
-                        let res = self.add_device(dev);
-                        self.chan.tx.send(EvtRx::Added(res)).unwrap();
+                    DrvCmd::Terminate => break Some(LoopCmd::Break),
+                    DrvCmd::Attach(dev, tx, rx) => match self.add_device(DevExt::new(dev, tx, rx)) {
+                        Ok(_) => continue,
+                        Err(err) => break Some(LoopCmd::Error(err)),
                     },
-                    EvtTx::Remove(id) => {
-                        let res = self.remove_device(id);
-                        self.chan.tx.send(EvtRx::Removed(res)).unwrap();
-                    }
                 },
-                Err(err) => {
-                    if let TryRecvError::Empty = err {
-                        break None;
-                    } else {
-                        panic!("{:?}", err);
-                    }
-                }
+                Err(err) => match err {
+                    TryRecvError::Empty => break None,
+                    x => break Some(LoopCmd::Error(LoopError::TryRecv(x))),
+                },
             }
         }
     }
 
-    fn handle_dev_chan(&mut self, id: DevId) {
+    fn handle_dev_chan(&mut self, id: usize) -> Result<(), LoopError> {
         match self.devs.get(&id) {
             Some(_dev) => unimplemented!(),
-            None => panic!("No device with such id: {}", id),
+            None => Err(LoopError::IdMissing(id)),
         }
     }
 
-    fn handle_dev_sock(&mut self, _id: DevId) {
-        unimplemented!();
+    fn handle_dev_sock(&mut self, id: usize) -> Result<(), LoopError> {
+        match self.devs.get(&id) {
+            Some(_dev) => unimplemented!(),
+            None => Err(LoopError::IdMissing(id)),
+        }
     }
 
     pub fn run(mut self) {
@@ -130,14 +129,15 @@ impl EventLoop {
                         1 => match self.handle_self_chan() {
                             Some(cmd) => match cmd {
                                 LoopCmd::Break => break 'main,
+                                LoopCmd::Error(err) => panic!("{:?}", err),
                             },
                             None => {},
                         },
                         _ => unreachable!(),
                     }
                     id => match kind {
-                        0 => self.handle_dev_chan(id),
-                        1 => self.handle_dev_sock(id),
+                        0 => self.handle_dev_chan(id).unwrap(),
+                        1 => self.handle_dev_sock(id).unwrap(),
                         _ => unreachable!(),
                     }
                 }
@@ -145,15 +145,14 @@ impl EventLoop {
         }
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use std::thread;
 
-    use ::*;
-    use ::event_loop::*;
+    use super::*;
 
-    fn loop_wrap<F: FnOnce(&IoChan<EvtTx, EvtRx>)>(f: F) {
+    fn loop_wrap<F: FnOnce(&IoChan<DrvCmd, EvtRx>)>(f: F) {
         let (chan, evtchan) = IoChan::new_pair();
         let jh = thread::spawn(move || {
             EventLoop::new(evtchan).run();
@@ -161,7 +160,7 @@ mod tests {
 
         f(&chan);
 
-        chan.tx.send(EvtTx::Term).unwrap();
+        chan.tx.send(DrvCmd::Term).unwrap();
         jh.join().unwrap();
     }
 
@@ -170,6 +169,4 @@ mod tests {
         loop_wrap(|_| {});
     }
 }
-
-
-
+*/

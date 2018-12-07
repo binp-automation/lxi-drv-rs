@@ -1,80 +1,60 @@
 use std::mem;
-use std::thread::{self};
-use std::sync::{Mutex};
+use std::thread::{self, JoinHandle};
 
-use mio::*;
+use mio_extras::channel::{self as mio_channel, Sender, Receiver};
 
-use ::*;
+use ::channel;
 use ::device::*;
-use ::event_loop::{EventLoop, EvtTx, EvtRx};
+use ::event_loop::*;
 
 #[derive(Debug)]
+pub enum Error {
+    Chan(channel::Error),
+    Send(mio_channel::SendError<DrvCmd>),
+}
+
+pub enum DrvCmd {
+    Attach(Device, Sender<DevRx>, Receiver<DevTx>),
+    Terminate,
+}
+
 pub struct Driver {
-    thr: Option<thread::JoinHandle<()>>,
-    chan: Mutex<IoChan<EvtTx, EvtRx>>,
-    poll: Poll,
-    evts: Events,
+    thr: Option<JoinHandle<()>>,
+    tx: Sender<DrvCmd>,
 }
 
 impl Driver {
     pub fn new() -> Result<Self, Error> {
-        let (send_chan, recv_chan) = IoChan::new_pair();
+        let (tx, rx) = mio_channel::channel();
         let thr = thread::spawn(move || {
-            EventLoop::new(recv_chan).run();
+            EventLoop::new(rx).unwrap().run();
         });
-        
-        let poll = Poll::new().unwrap();
-        poll.register(&send_chan.rx, Token(0), Ready::readable(), PollOpt::edge()).unwrap();
-        let evts = Events::with_capacity(16);
 
         Ok(Driver {
             thr: Some(thr),
-            chan: Mutex::new(send_chan),
-            poll, evts,
+            tx: tx,
         })
     }
 
-    pub fn request(&mut self, evt: EvtTx) -> Result<EvtRx, Error> {
-        let guard = self.chan.lock().unwrap();
-        guard.tx.send(evt).unwrap();
-        loop {
-            self.poll.poll(&mut self.evts, None).unwrap();
-            if !self.evts.is_empty() {
-                let mut it = self.evts.iter();
-                let res = it.next().unwrap();
-                assert!(it.next().is_none());
-                assert!(res.token() == Token(0) && res.readiness().is_readable());
-                match guard.rx.try_recv() {
-                    Ok(revt) => break Ok(revt),
-                    Err(err) => panic!("{:?}", err),
-                }
-            }
-        }
-    }
-
-    pub fn add(&mut self, dev: Device) -> Result<DevId, Error> {
-        match self.request(EvtTx::Add(dev)).unwrap() {
-            EvtRx::Added(res) => res,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn remove(&mut self, id: DevId) -> Result<(), Error> {
-        match self.request(EvtTx::Remove(id)).unwrap() {
-            EvtRx::Removed(res) => res,
-            _ => unreachable!(),
+    pub fn attach(&mut self, dev: Device) -> Result<DeviceHandle, Error> {
+        let (dtx, hrx) = mio_channel::channel();
+        let (htx, drx) = mio_channel::channel();
+        match self.tx.send(DrvCmd::Attach(dev, dtx, drx)) {
+            Ok(_) => Ok(DeviceHandle { tx: htx, rx: hrx }),
+            Err(err) => Err(Error::Send(err)),
         }
     }
 }
 
 impl Drop for Driver {
     fn drop(&mut self) {
-        self.chan.lock().unwrap().tx.send(EvtTx::Term).unwrap();
+        self.tx.send(DrvCmd::Terminate);
         let thr = mem::replace(&mut self.thr, None).unwrap();
         thr.join().unwrap();
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +109,5 @@ mod tests {
         }
     }
 }
-
+*/
 
