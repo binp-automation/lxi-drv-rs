@@ -1,6 +1,6 @@
 [package]
 name = "oscdrv-rs"
-version = "0.0.1"
+version = "0.0.3"
 authors = ["Alexey Gerasev <alexey.gerasev@gmail.com>"]
 
 [dependencies]

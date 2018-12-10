@@ -1,20 +1,17 @@
 use std::mem;
 use std::thread::{self, JoinHandle};
 
-use mio_extras::channel::{self as mio_channel, Sender, Receiver};
-
-use ::channel;
+use ::channel::{*, Error as ChanError};
 use ::device::*;
 use ::event_loop::*;
 
 #[derive(Debug)]
 pub enum Error {
-    Chan(channel::Error),
-    Send(mio_channel::SendError<DrvCmd>),
+    Chan(ChanError),
 }
 
 pub enum DrvCmd {
-    Attach(Device, Sender<DevRx>, Receiver<DevTx>),
+    Attach(Device, (Sender<DevRx>, Receiver<DevTx>)),
     Terminate,
 }
 
@@ -25,7 +22,7 @@ pub struct Driver {
 
 impl Driver {
     pub fn new() -> Result<Self, Error> {
-        let (tx, rx) = mio_channel::channel();
+        let (tx, rx) = channel();
         let thr = thread::spawn(move || {
             EventLoop::new(rx).unwrap().run();
         });
@@ -36,19 +33,19 @@ impl Driver {
         })
     }
 
-    pub fn attach(&mut self, dev: Device) -> Result<DeviceHandle, Error> {
-        let (dtx, hrx) = mio_channel::channel();
-        let (htx, drx) = mio_channel::channel();
-        match self.tx.send(DrvCmd::Attach(dev, dtx, drx)) {
-            Ok(_) => Ok(DeviceHandle { tx: htx, rx: hrx }),
-            Err(err) => Err(Error::Send(err)),
+    pub fn attach(&mut self, dev: Device) -> Result<DevHandle, Error> {
+        let (dtx, hrx) = channel();
+        let (htx, drx) = channel();
+        match self.tx.send(DrvCmd::Attach(dev, (dtx, drx))) {
+            Ok(_) => Ok(DevHandle::new(htx, hrx)),
+            Err(err) => Err(Error::Chan(err.into())),
         }
     }
 }
 
 impl Drop for Driver {
     fn drop(&mut self) {
-        self.tx.send(DrvCmd::Terminate);
+        self.tx.send(DrvCmd::Terminate).unwrap();
         let thr = mem::replace(&mut self.thr, None).unwrap();
         thr.join().unwrap();
     }
@@ -62,15 +59,14 @@ mod tests {
     fn dummy_device() -> Device {
         Device {
             addr: Addr::Dns(String::from("localhost"), 8000),
-            chan: IoChan::new_pair().0,
         }
     }
-
     #[test]
-    fn add() {
+    fn add_remove() {
         let mut drv = Driver::new().unwrap();
         let dev = dummy_device();
-        drv.add(dev).unwrap();
+        let dh = drv.attach(dev).unwrap();
+        dh.detach().unwrap();
     }
 
     #[test]
@@ -110,4 +106,3 @@ mod tests {
     }
 }
 */
-
