@@ -1,11 +1,11 @@
-/*
 use super::*;
 
-fn dummy_device() -> Device {
-    Device {
+fn dummy_device() -> DevProxy {
+    DevProxy {
         addr: Addr::Dns(String::from("localhost"), 8000),
     }
 }
+
 #[test]
 fn add_remove() {
     let mut drv = Driver::new().unwrap();
@@ -14,6 +14,7 @@ fn add_remove() {
     dh.detach().unwrap();
 }
 
+/*
 #[test]
 fn add_remove() {
     let mut drv = Driver::new().unwrap();

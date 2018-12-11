@@ -5,8 +5,8 @@ use std::time::{Duration};
 use std::sync::{Arc, atomic::{Ordering, AtomicBool}};
 
 
-fn dummy_device() -> Device {
-    Device {
+fn dummy_device() -> DevProxy {
+    DevProxy {
         addr: Addr::Dns(String::from("localhost"), 8000),
     }
 }

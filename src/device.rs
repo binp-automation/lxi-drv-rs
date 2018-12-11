@@ -40,17 +40,17 @@ pub enum DevRx {
     Disconnected,
     
     Attached,
-    Detached(Device),
+    Detached(DevProxy),
 }
 
 #[derive(Debug)]
-pub struct Device {
+pub struct DevProxy {
     pub addr: Addr,
 }
 
-impl Device {
-    pub fn new(addr: Addr) -> Device {
-        Device { addr }
+impl DevProxy {
+    pub fn new(addr: Addr) -> DevProxy {
+        DevProxy { addr }
     }
 }
 
@@ -86,10 +86,10 @@ impl DevHandle {
     pub fn rx(&self) -> Result<&Receiver<DevRx>, DevError> {
         self.cnx().map(|c| &c.rx)
     }
-    pub fn detach_ref(&mut self) -> Result<Device, DevError> {
+    pub fn detach_ref(&mut self) -> Result<DevProxy, DevError> {
         let cnx = mem::replace(&mut self.cnx_opt, None).ok_or(DevError::Detached)?;
 
-        let dev_opt: Option<Device> = loop {
+        let dev_opt: Option<DevProxy> = loop {
             match cnx.rx.try_recv() {
                 Ok(msg) => match msg {
                     DevRx::Detached(dev) => break Ok(Some(dev)),
@@ -121,7 +121,7 @@ impl DevHandle {
         }
     }
 
-    pub fn detach(mut self) -> Result<Device, DevError> {
+    pub fn detach(mut self) -> Result<DevProxy, DevError> {
         self.detach_ref()
     }
 }

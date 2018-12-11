@@ -17,7 +17,7 @@ pub enum DrvError {
 }
 
 pub enum DrvCmd {
-    Attach(Device, (Sender<DevRx>, Receiver<DevTx>)),
+    Attach(DevProxy, (Sender<DevRx>, Receiver<DevTx>)),
     Terminate,
 }
 
@@ -30,7 +30,7 @@ impl Driver {
     pub fn new() -> Result<Self, DrvError> {
         let (tx, rx) = channel();
         let thr = thread::spawn(move || {
-            EventLoop::new(rx).unwrap().run_forever(1024);
+            EventLoop::new(rx).unwrap().run_forever(1024, None);
         });
 
         Ok(Driver {
@@ -39,7 +39,7 @@ impl Driver {
         })
     }
 
-    pub fn attach(&mut self, dev: Device) -> Result<DevHandle, DrvError> {
+    pub fn attach(&mut self, dev: DevProxy) -> Result<DevHandle, DrvError> {
         let (dtx, hrx) = channel();
         let (htx, drx) = channel();
         match self.tx.send(DrvCmd::Attach(dev, (dtx, drx))) {
