@@ -1,12 +1,18 @@
+#[cfg(test)]
+#[path = "./tests/driver.rs"]
+mod tests;
+
+
 use std::mem;
 use std::thread::{self, JoinHandle};
 
-use ::channel::{*, Error as ChanError};
+use ::channel::*;
 use ::device::*;
 use ::event_loop::*;
 
+
 #[derive(Debug)]
-pub enum Error {
+pub enum DrvError {
     Chan(ChanError),
 }
 
@@ -21,10 +27,10 @@ pub struct Driver {
 }
 
 impl Driver {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new() -> Result<Self, DrvError> {
         let (tx, rx) = channel();
         let thr = thread::spawn(move || {
-            EventLoop::new(rx).unwrap().run();
+            EventLoop::new(rx).unwrap().run_forever(1024);
         });
 
         Ok(Driver {
@@ -33,12 +39,12 @@ impl Driver {
         })
     }
 
-    pub fn attach(&mut self, dev: Device) -> Result<DevHandle, Error> {
+    pub fn attach(&mut self, dev: Device) -> Result<DevHandle, DrvError> {
         let (dtx, hrx) = channel();
         let (htx, drx) = channel();
         match self.tx.send(DrvCmd::Attach(dev, (dtx, drx))) {
             Ok(_) => Ok(DevHandle::new(htx, hrx)),
-            Err(err) => Err(Error::Chan(err.into())),
+            Err(err) => Err(DrvError::Chan(err.into())),
         }
     }
 }
@@ -50,59 +56,3 @@ impl Drop for Driver {
         thr.join().unwrap();
     }
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn dummy_device() -> Device {
-        Device {
-            addr: Addr::Dns(String::from("localhost"), 8000),
-        }
-    }
-    #[test]
-    fn add_remove() {
-        let mut drv = Driver::new().unwrap();
-        let dev = dummy_device();
-        let dh = drv.attach(dev).unwrap();
-        dh.detach().unwrap();
-    }
-
-    #[test]
-    fn add_remove() {
-        let mut drv = Driver::new().unwrap();
-        let dev = dummy_device();
-        let devid = drv.add(dev).unwrap();
-        assert!(drv.remove(devid).is_ok());
-    }
-
-    #[test]
-    fn remove_empty() {
-        let mut drv = Driver::new().unwrap();
-        assert!(drv.remove(0).is_err());
-    }
-
-    #[test]
-    fn remove_twice() {
-        let mut drv = Driver::new().unwrap();
-        let dev = dummy_device();
-        let devid = drv.add(dev).unwrap();
-        assert!(drv.remove(devid).is_ok());
-        assert!(drv.remove(devid).is_err());
-    }
-
-    #[test]
-    fn add_remove_many() {
-        let mut drv = Driver::new().unwrap();
-        let devs = (0..16).map(|_| dummy_device());
-        let mut ids = Vec::new();
-        for dev in devs {
-            ids.push(drv.add(dev).unwrap());
-        }
-        for id in ids {
-            drv.remove(id).unwrap();
-        }
-    }
-}
-*/

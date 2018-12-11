@@ -1,3 +1,8 @@
+#[cfg(test)]
+#[path = "./tests/event_loop.rs"]
+mod tests;
+
+
 use std::mem;
 use std::io;
 use std::collections::{BTreeMap};
@@ -5,13 +10,13 @@ use std::net::{TcpStream};
 
 use mio::*;
 
-use ::channel::{*, Error as ChanError};
+use ::channel::*;
 use ::device::*;
 use ::driver::{DrvCmd};
 
 
 #[derive(Debug)]
-pub enum Error {
+pub enum LoopError {
     IdPresent(usize),
     IdMissing(usize),
     Io(io::Error),
@@ -32,8 +37,8 @@ struct DevExt {
 }
 
 impl DevExt {
-    fn new(base: Device, tx: Sender<DevRx>, rx: Receiver<DevTx>) -> Result<DevExt, Error> {
-        tx.send(DevRx::Attached).map_err(|e| Error::Chan(e.into()))?;
+    fn new(base: Device, tx: Sender<DevRx>, rx: Receiver<DevTx>) -> Result<DevExt, LoopError> {
+        tx.send(DevRx::Attached).map_err(|e| LoopError::Chan(e.into()))?;
         Ok(DevExt {
             base: Some(base),
             tx, rx,
@@ -59,13 +64,13 @@ pub struct EventLoop {
 
 enum LoopCmd {
     Break,
-    Nop
+    Nop,
 }
 
 impl EventLoop {
-    pub fn new(rx: Receiver<DrvCmd>) -> Result<Self, Error> {
-        let poll = Poll::new().map_err(|e| Error::Io(e))?;
-        poll.register(&rx, Token(1), Ready::readable(), PollOpt::edge()).map_err(|e| Error::Io(e))?;
+    pub fn new(rx: Receiver<DrvCmd>) -> Result<Self, LoopError> {
+        let poll = Poll::new().map_err(|e| LoopError::Io(e))?;
+        poll.register(&rx, Token(1), Ready::readable(), PollOpt::edge()).map_err(|e| LoopError::Io(e))?;
         Ok(EventLoop {
             rx,
             devs: BTreeMap::new(),
@@ -75,27 +80,31 @@ impl EventLoop {
         })
     }
 
-    fn add_device(&mut self, dev: Device, tx: Sender<DevRx>, rx: Receiver<DevTx>) -> Result<DevId, Error> {
+    fn add_device(&mut self, dev: Device, tx: Sender<DevRx>, rx: Receiver<DevTx>) -> Result<DevId, LoopError> {
         let dev_ext = DevExt::new(dev, tx, rx)?;
 
         let id = self.idcnt;
         self.idcnt += 1;
 
-        if let Some(_) = self.devs.insert(id, dev_ext) {
-            Err(Error::IdPresent(id))
-        } else {
-            Ok(id)
+        // TODO: more convenient way of transaction
+        self.poll.register(&dev_ext.rx, Token(2*id + 1), Ready::readable(), PollOpt::edge()).map_err(|e| LoopError::Io(e))?;
+        match self.devs.insert(id, dev_ext) {
+            Some(_) => {
+                self.poll.deregister(Token(2*id + 1)).map_err(|e| LoopError::Io(e))?;
+                LoopError::IdPresent(id)
+            },
+            None => Ok(id),
         }
     }
 
-    fn remove_device(&mut self, id: DevId) -> Result<(), Error> {
+    fn remove_device(&mut self, id: DevId) -> Result<(), LoopError> {
         match self.devs.remove(&id) {
             Some(_) => Ok(()),
-            None => Err(Error::IdMissing(id)),
+            None => Err(LoopError::IdMissing(id)),
         }
     }
 
-    fn handle_self_chan(&mut self) -> Result<LoopCmd, Error> {
+    fn handle_self_chan(&mut self) -> Result<LoopCmd, LoopError> {
         loop {
             match self.rx.try_recv() {
                 Ok(evt) => match evt {
@@ -109,13 +118,13 @@ impl EventLoop {
                 },
                 Err(err) => match err {
                     TryRecvError::Empty => break Ok(LoopCmd::Nop),
-                    TryRecvError::Disconnected => break Err(Error::Chan(ChanError::Disconnected)),
+                    TryRecvError::Disconnected => break Err(LoopError::Chan(ChanError::Disconnected)),
                 },
             }
         }
     }
 
-    fn handle_dev_chan(&mut self, id: DevId) -> Result<(), Error> {
+    fn handle_dev_chan(&mut self, id: DevId) -> Result<(), LoopError> {
         match self.devs.get(&id) {
             Some(dev) => loop {
                 match dev.rx.try_recv() {
@@ -128,77 +137,61 @@ impl EventLoop {
                     },
                     Err(err) => match err {
                         TryRecvError::Empty => break Ok(()),
-                        TryRecvError::Disconnected => break Err(Error::Chan(ChanError::Disconnected)),
+                        TryRecvError::Disconnected => break Err(LoopError::Chan(ChanError::Disconnected)),
                     }
                 }
             },
-            None => Err(Error::IdMissing(id)),
+            None => Err(LoopError::IdMissing(id)),
         }
     }
 
-    fn handle_dev_sock(&mut self, id: DevId) -> Result<(), Error> {
+    fn handle_dev_sock(&mut self, id: DevId) -> Result<(), LoopError> {
         match self.devs.get(&id) {
             Some(_dev) => unimplemented!(),
-            None => Err(Error::IdMissing(id)),
+            None => Err(LoopError::IdMissing(id)),
         }
     }
 
-    pub fn run(mut self) {
-        let mut events = Events::with_capacity(1024);
-        'main: loop {
-            self.poll.poll(&mut events, None).unwrap();
+    fn run_once(&mut self, events: &mut Events) -> Result<bool, LoopError> {
+        self.poll.poll(events, None).map_err(|e| LoopError::Io(e))?;
 
-            for event in events.iter() {
-                let token = event.token();
-                let id = token.0 >> TOKEN_GRAN_BITS;
-                let kind = token.0 & TOKEN_GRAN_MASK;
-                match id {
-                    0 => match kind {
-                        0 => panic!("No such token: {}", 0),
-                        1 => match self.handle_self_chan().unwrap() {
-                            LoopCmd::Break => break 'main,
-                            LoopCmd::Nop => continue,
-                        },
-                        _ => unreachable!(),
-                    }
-                    id => match kind {
-                        0 => self.handle_dev_chan(id).unwrap(),
-                        1 => self.handle_dev_sock(id).unwrap(),
-                        _ => unreachable!(),
-                    }
+        for event in events.iter() {
+            let token = event.token();
+            let id = token.0 >> TOKEN_GRAN_BITS;
+            let kind = token.0 & TOKEN_GRAN_MASK;
+            match id {
+                0 => match kind {
+                    0 => return Err(LoopError::IdMissing(0)),
+                    1 => match self.handle_self_chan()? {
+                        LoopCmd::Break => return Ok(true),
+                        LoopCmd::Nop => (),
+                    },
+                    _ => unreachable!(),
                 }
-            }
-
-            loop {
-                match self.rmlist.pop() {
-                    Some(id) => self.remove_device(id).unwrap(),
-                    None => break,
+                id => match kind {
+                    0 => self.handle_dev_chan(id)?,
+                    1 => self.handle_dev_sock(id)?,
+                    _ => unreachable!(),
                 }
             }
         }
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use std::thread;
+        loop {
+            match self.rmlist.pop() {
+                Some(id) => self.remove_device(id).unwrap(),
+                None => break,
+            }
+        }
 
-    use super::*;
-
-    fn loop_wrap<F: FnOnce(&Sender<DrvCmd>)>(f: F) {
-        let (tx, rx) = channel();
-        let jh = thread::spawn(move || {
-            EventLoop::new(rx).unwrap().run();
-        });
-
-        f(&tx);
-
-        tx.send(DrvCmd::Terminate).unwrap();
-        jh.join().unwrap();
+        Ok(false)
     }
 
-    #[test]
-    fn run() {
-        loop_wrap(|_| {});
+    pub fn run_forever(mut self, cap: usize) {
+        let mut events = Events::with_capacity(cap);
+        loop {
+            if self.run_once(&mut events).unwrap() {
+                break;
+            }
+        }
     }
 }
