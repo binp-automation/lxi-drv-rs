@@ -52,7 +52,7 @@ fn terminate() {
 }
 
 #[test]
-fn attach_one() {
+fn attach() {
     loop_wrap(|el, tx| {
         let (dtx, hrx) = channel();
         let (htx, drx) = channel();
