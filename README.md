@@ -11,7 +11,7 @@ Driver for binding LXI devices to EPICS control system
 
 ## Architecture
 
-![Architecture scheme](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg?sanitize=true)
+[![Architecture scheme](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg?sanitize=true)](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg)
 
 ## License
 
