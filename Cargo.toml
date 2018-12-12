@@ -1,9 +1,8 @@
 [package]
-name = "oscdrv-rs"
+name = "lxidrv"
 version = "0.0.3"
 authors = ["Alexey Gerasev <alexey.gerasev@gmail.com>"]
 
 [dependencies]
 mio = "0.6"
 mio-extras = "2.0"
-threadpool = "1.7.1"
