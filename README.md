@@ -8,6 +8,11 @@ Driver for binding LXI devices to EPICS control system
 
 + [Develop branch documentation](https://binp-automation.github.io/lxi-drv-rs/target/doc/lxidrv/)
 
+
+## Architecture
+
+![Architecture scheme](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg?sanitize=true)
+
 ## License
 
 Licensed under either of
