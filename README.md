@@ -1,10 +1,17 @@
 # LXI Driver
 
+[![Build Status](https://travis-ci.org/binp-automation/lxi-drv-rs.png?branch=develop)](https://travis-ci.org/binp-automation/lxi-drv-rs)
+
 Driver for binding LXI devices to EPICS control system
 
 ## Documentation
 
 + [Develop branch documentation](https://binp-automation.github.io/lxi-drv-rs/target/doc/lxidrv/)
+
+
+## Architecture
+
+![Architecture scheme](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg?sanitize=true)
 
 ## License
 
