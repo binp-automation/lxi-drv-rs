@@ -6,3 +6,6 @@ authors = ["Alexey Gerasev <alexey.gerasev@gmail.com>"]
 [dependencies]
 mio = "0.6"
 mio-extras = "2.0"
+
+[dev-dependencies]
+matches = "0.1"
