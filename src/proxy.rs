@@ -1,9 +1,9 @@
-use std::error;
+use std::error::{Error as StdError};
 use std::fmt;
 
-use mio::*;
+use mio;
 
-use ::result;
+use ::error::{IdError};
 
 
 pub type Id = usize;
@@ -35,14 +35,14 @@ pub enum Error {
 }
 
 
-impl error::Error for Error {
+impl StdError for Error {
     fn description(&self) -> &str {
         match self {
             Error::Closed => "Proxy detached",
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&StdError> {
         match self {
             Error::Closed => None,
         }
@@ -51,22 +51,45 @@ impl error::Error for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", (self as &error::Error).description())
+        write!(f, "{}", (self as &StdError).description())
     }
 }
 
 
-#[derive(Debug)]
-pub enum Action {
-    Close,
-    Nope,
+pub struct Control<'a> {
+    pub(crate) id: Id,
+    pub(crate) poll: &'a mio::Poll,
+    pub(crate) closed: bool,
+}
+
+impl<'a> Control<'a> {
+    pub(crate) fn new(id: Id, poll: &'a mio::Poll) -> Self {
+        Self { id, poll, closed: false }
+    }
+
+    pub fn register<E: mio::Evented>(&mut self, handle: &E, eid: Eid, interest: mio::Ready, opts: mio::PollOpt) -> ::Result<()> {
+        self.poll.register(
+            handle, 
+            encode_ids(self.id, eid).ok_or(::Error::from(IdError::Bad))?, 
+            interest, 
+            opts,
+        ).map_err(|e| ::Error::from(e))
+    }
+
+    pub fn deregister<E: mio::Evented>(&mut self, handle: &E) -> ::Result<()> {
+        self.poll.deregister(handle).map_err(|e| ::Error::from(e))
+    }
+
+    pub fn close(&mut self) {
+        self.closed = true;
+    }
 }
 
 pub trait Proxy {
-    fn attach(&mut self, poll: &Poll, id: Id) -> result::Result<()>;
-    fn detach(&mut self, poll: &Poll) -> result::Result<()>;
+    fn attach(&mut self, ctrl: &mut Control) -> ::Result<()>;
+    fn detach(&mut self, ctrl: &mut Control) -> ::Result<()>;
 
-    fn process(&mut self, poll: &Poll, event: &Event) -> result::Result<Action>;
+    fn process(&mut self, ctrl: &mut Control, readiness: mio::Ready, eid: Eid) -> ::Result<()>;
 }
 
 
@@ -91,7 +114,7 @@ mod test {
     #[test]
     fn ids_decode() {
         assert_eq!(
-            decode_ids(Token((456 << EID_BITS) | 123)),
+            decode_ids(mio::Token((456 << EID_BITS) | 123)),
             (456, 123)
         );
     }

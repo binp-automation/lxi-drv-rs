@@ -1,28 +1,30 @@
+mod event_loop;
+
+
 use std::mem;
 use std::thread::{self, JoinHandle};
 
-use ::channel::*;
-use ::device::*;
-use ::event_loop::*;
+use ::channel::{channel, Sender};
+use ::proxy::{Proxy};
+
+use self::event_loop::{EventLoop};
 
 
 #[derive(Debug)]
-pub enum DrvError {
-    Chan(ChanError),
-}
+pub enum Error {}
 
-pub enum DrvCmd {
-    Attach(DevProxy, (Sender<DevRx>, Receiver<DevTx>)),
+pub enum Tx {
+    Attach(Box<Proxy + Send>),
     Terminate,
 }
 
 pub struct Driver {
     thr: Option<JoinHandle<()>>,
-    tx: Sender<DrvCmd>,
+    tx: Sender<Tx>,
 }
 
 impl Driver {
-    pub fn new() -> Result<Self, DrvError> {
+    pub fn new() -> Result<Self, ::Error> {
         let (tx, rx) = channel();
         let thr = thread::spawn(move || {
             EventLoop::new(rx).unwrap().run_forever(1024, None);
@@ -34,27 +36,26 @@ impl Driver {
         })
     }
 
-    pub fn attach(&mut self, dev: DevProxy) -> Result<DevHandle, DrvError> {
-        let (dtx, hrx) = channel();
-        let (htx, drx) = channel();
-        match self.tx.send(DrvCmd::Attach(dev, (dtx, drx))) {
-            Ok(_) => Ok(DevHandle::new(htx, hrx)),
-            Err(err) => Err(DrvError::Chan(err.into())),
+    pub fn attach(&mut self, proxy: Box<Proxy + Send>) -> ::Result<()> {
+        match self.tx.send(Tx::Attach(proxy)) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(::Error::Channel(err.into())),
         }
     }
 }
 
 impl Drop for Driver {
     fn drop(&mut self) {
-        self.tx.send(DrvCmd::Terminate).unwrap();
+        self.tx.send(Tx::Terminate).unwrap();
         let thr = mem::replace(&mut self.thr, None).unwrap();
         thr.join().unwrap();
     }
 }
 
 
+/*
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     fn dummy_device() -> DevProxy {
@@ -94,3 +95,4 @@ mod tests {
         assert_eq!(dhs.len(), 0);
     }
 }
+*/

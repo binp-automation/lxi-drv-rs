@@ -52,7 +52,7 @@ impl error::Error for IdError {
         match self {
             IdError::Present => "Id already present",
             IdError::Missing => "Id is missing",
-            IdError::Bad => "Iad id",
+            IdError::Bad => "Bad id",
         }
     }
 

@@ -1,6 +1,6 @@
 use std::io;
 use std::sync::mpsc::{self as std_chan};
-use std::error;
+use std::error::{Error as StdError};
 use std::fmt;
 
 use mio;
@@ -16,7 +16,7 @@ pub enum RecvError {
     Disconnected,
 }
 
-impl error::Error for RecvError {
+impl StdError for RecvError {
     fn description(&self) -> &str {
         match self {
             RecvError::Io(e) => e.description(),
@@ -24,7 +24,7 @@ impl error::Error for RecvError {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&StdError> {
         match self {
             RecvError::Io(e) => Some(e),
             RecvError::Disconnected => None,
@@ -34,7 +34,7 @@ impl error::Error for RecvError {
 
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", (self as &error::Error).description())
+        write!(f, "{}", (self as &StdError).description())
     }
 }
 
@@ -44,7 +44,7 @@ pub enum Error {
     Disconnected,
 }
 
-impl error::Error for Error {
+impl StdError for Error {
     fn description(&self) -> &str {
         match self {
             Error::Io(e) => e.description(),
@@ -52,7 +52,7 @@ impl error::Error for Error {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&StdError> {
         match self {
             Error::Io(e) => Some(e),
             Error::Disconnected => None,
@@ -62,7 +62,7 @@ impl error::Error for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", (self as &error::Error).description())
+        write!(f, "{}", (self as &StdError).description())
     }
 }
 
