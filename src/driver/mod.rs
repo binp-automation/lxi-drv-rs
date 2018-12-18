@@ -27,7 +27,7 @@ impl Driver {
     pub fn new() -> Result<Self, ::Error> {
         let (tx, rx) = channel();
         let thr = thread::spawn(move || {
-            EventLoop::new(rx).unwrap().run_forever(1024, None);
+            EventLoop::new(rx).unwrap().run_forever(1024, None).unwrap();
         });
 
         Ok(Driver {

@@ -1,4 +1,5 @@
 use std::io;
+use std::cell::{Cell};
 use std::sync::mpsc::{self as std_chan};
 use std::error::{Error as StdError};
 use std::fmt;
@@ -99,7 +100,7 @@ pub use self::mio_chan::channel;
 pub struct PollReceiver<'a, T: 'a> {
     pub rx: &'a Receiver<T>,
     pub poll: mio::Poll,
-    pub events: mio::Events,
+    pub events: Cell<Option<mio::Events>>,
 }
 
 impl<'a, T> PollReceiver<'a, T> {
@@ -114,28 +115,34 @@ impl<'a, T> PollReceiver<'a, T> {
 
         Ok(PollReceiver {
             rx, poll,
-            events: mio::Events::with_capacity(1),
+            events: Cell::new(Some(mio::Events::with_capacity(1))),
         })
     }
 
-    pub fn recv(&mut self) -> Result<T, RecvError> {
+    pub fn recv(&self) -> Result<T, RecvError> {
         match self.rx.try_recv() {
             Ok(msg) => Ok(msg),
             Err(err) => match err {
                 TryRecvError::Empty => {
-                    self.poll.poll(&mut self.events, None).map_err(|e| RecvError::Io(e))?;
-                    match self.events.iter().next() {
-                        Some(res) => assert!(res.token() == mio::Token(0) && res.readiness().is_readable()),
-                        None => unreachable!(),
-                    };
-                    
-                    match self.rx.try_recv() {
-                        Ok(msg) => Ok(msg),
-                        Err(err) => match err {
-                            TryRecvError::Empty => unreachable!(),
-                            TryRecvError::Disconnected => Err(RecvError::Disconnected),
+                    let mut events = self.events.replace(None).unwrap();
+
+                    let res = self.poll.poll(&mut events, None).map_err(|e| RecvError::Io(e)).and_then(|_| {
+                        match events.iter().next() {
+                            Some(res) => assert!(res.token() == mio::Token(0) && res.readiness().is_readable()),
+                            None => unreachable!(),
                         }
-                    }
+                        match self.rx.try_recv() {
+                            Ok(msg) => Ok(msg),
+                            Err(err) => match err {
+                                TryRecvError::Empty => unreachable!(),
+                                TryRecvError::Disconnected => Err(RecvError::Disconnected),
+                            }
+                        }
+                    });
+
+                    self.events.replace(Some(events));
+
+                    res
                 }
                 TryRecvError::Disconnected => Err(RecvError::Disconnected),
             }
@@ -174,7 +181,7 @@ mod test {
     #[test]
     fn send_pollrecv() {
         let (tx, rx) = channel();
-        let mut prx = PollReceiver::new(&rx).unwrap();
+        let prx = PollReceiver::new(&rx).unwrap();
 
         tx.send(42 as i32).unwrap();
         let n = prx.recv().unwrap();
@@ -185,7 +192,7 @@ mod test {
     #[test]
     fn send_close_pollrecv() {
         let (tx, rx) = channel();
-        let mut prx = PollReceiver::new(&rx).unwrap();
+        let prx = PollReceiver::new(&rx).unwrap();
 
         thread::spawn(move || {
             tx.send(42 as i32).unwrap();
@@ -205,7 +212,7 @@ mod test {
     #[test]
     fn send_pollrecv_close() {
         let (tx, rx) = channel();
-        let mut prx = PollReceiver::new(&rx).unwrap();
+        let prx = PollReceiver::new(&rx).unwrap();
 
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(10));

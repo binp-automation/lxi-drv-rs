@@ -1,7 +1,7 @@
 use mio;
 
 use ::channel::{self, channel, Sender, Receiver, PollReceiver, TryRecvError};
-use ::proxy::{self, Proxy, Control, Eid};
+use ::proxy::{self, Control, Eid};
 
 
 #[derive(Debug)]
@@ -35,24 +35,24 @@ impl TxExt for Tx {}
 impl RxExt for Rx {}
 
 
-pub trait UserProxy<T: TxExt, R: RxExt>: Proxy {
+pub trait UserProxy<T: TxExt, R: RxExt>: proxy::Proxy {
     fn process_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
 }
 
-pub struct ChannelProxy<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
+pub struct Proxy<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
     pub user: P,
     pub tx: Sender<R>,
     pub rx: Receiver<T>,
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> ChannelProxy<P, T, R> {
-    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> ChannelProxy<P, T, R> {
-        ChannelProxy { user, tx, rx }
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy<P, T, R> {
+    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> Proxy<P, T, R> {
+        Proxy { user, tx, rx }
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ChannelProxy<P, T, R> {
-    fn attach(&mut self, ctrl: &mut Control) -> ::Result<()> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
+    fn attach(&mut self, ctrl: &Control) -> ::Result<()> {
         ctrl.register(&self.rx, 0, mio::Ready::readable(), mio::PollOpt::edge())
         .and_then(|_| {
             self.user.attach(ctrl)
@@ -72,7 +72,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ChannelProxy<P, T, R> {
             })
         })
     }
-    fn detach(&mut self, ctrl: &mut Control) -> ::Result<()> {
+    fn detach(&mut self, ctrl: &Control) -> ::Result<()> {
         self.user.detach(ctrl)
         .and(ctrl.deregister(&self.rx))
         .and(self.tx.send(Rx::Detached.into()).map_err(|e| ::Error::Channel(e.into())))
@@ -111,7 +111,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ChannelProxy<P, T, R> {
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ChannelProxy<P, T, R> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for Proxy<P, T, R> {
     fn drop(&mut self) {
         self.tx.send(Rx::Closed.into()).unwrap()
     }
@@ -120,16 +120,16 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ChannelProxy<P, T, R> {
 
 pub trait UserHandle<T: TxExt, R: RxExt> {}
 
-pub struct ChannelHandle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
+pub struct Handle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
     pub user: H,
     pub tx: Sender<T>,
     pub rx: Receiver<R>,
     closed: bool,
 }
 
-impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> ChannelHandle<H, T, R> {
+impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
     fn new(user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
-        ChannelHandle { user, tx, rx, closed: false }
+        Handle { user, tx, rx, closed: false }
     }
 
     fn close_ref(&mut self) -> ::Result<()> {
@@ -158,7 +158,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> ChannelHandle<H, T, R> {
         
         self.tx.send(Tx::Close.into()).map_err(|e| ::Error::Channel(e.into()))?;
 
-        let mut prx = PollReceiver::new(&self.rx).map_err(|e| ::Error::Channel(e.into()))?;
+        let prx = PollReceiver::new(&self.rx).map_err(|e| ::Error::Channel(e.into()))?;
         loop {
             match prx.recv() {
                 Ok(msg) => match msg.into() {
@@ -175,7 +175,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> ChannelHandle<H, T, R> {
     }
 }
 
-impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for ChannelHandle<H, T, R> {
+impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
     fn drop(&mut self) {
         match self.close_ref() {
             Ok(_) => (),
@@ -187,12 +187,12 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for ChannelHandle<H, T, R> {
     }
 }
 
-pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(ChannelProxy<P, T, R>, ChannelHandle<H, T, R>)>
+pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
 where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
-    let proxy = ChannelProxy::new(user_proxy, ptx, prx);
-    let handle = ChannelHandle::new(user_handle, htx, hrx);
+    let proxy = Proxy::new(user_proxy, ptx, prx);
+    let handle = Handle::new(user_handle, htx, hrx);
     Ok((proxy, handle))
 }
 
@@ -215,7 +215,7 @@ mod test {
 
         h.close_ref().unwrap();
 
-        let mut hprx = PollReceiver::new(&h.rx).unwrap();
+        let hprx = PollReceiver::new(&h.rx).unwrap();
         assert_matches!(hprx.recv(), Err(RecvError::Disconnected));
     }
 
@@ -225,7 +225,7 @@ mod test {
 
         thread::spawn(move || {
             let mp = p;
-            let mut pprx = PollReceiver::new(&mp.rx).unwrap();
+            let pprx = PollReceiver::new(&mp.rx).unwrap();
             assert_matches!(pprx.recv(), Ok(Tx::Close));
         });
 

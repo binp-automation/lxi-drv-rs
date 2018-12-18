@@ -6,8 +6,8 @@ mod result;
 
 pub mod channel;
 pub mod proxy;
-pub mod channel_proxy;
-//pub mod driver;
+pub mod wrapper;
+pub mod driver;
 
 pub use error::{Error};
 pub use result::{Result};

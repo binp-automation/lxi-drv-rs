@@ -67,7 +67,7 @@ impl<'a> Control<'a> {
         Self { id, poll, closed: false }
     }
 
-    pub fn register<E: mio::Evented>(&mut self, handle: &E, eid: Eid, interest: mio::Ready, opts: mio::PollOpt) -> ::Result<()> {
+    pub fn register<E: mio::Evented>(&self, handle: &E, eid: Eid, interest: mio::Ready, opts: mio::PollOpt) -> ::Result<()> {
         self.poll.register(
             handle, 
             encode_ids(self.id, eid).ok_or(::Error::from(IdError::Bad))?, 
@@ -76,7 +76,7 @@ impl<'a> Control<'a> {
         ).map_err(|e| ::Error::from(e))
     }
 
-    pub fn deregister<E: mio::Evented>(&mut self, handle: &E) -> ::Result<()> {
+    pub fn deregister<E: mio::Evented>(&self, handle: &E) -> ::Result<()> {
         self.poll.deregister(handle).map_err(|e| ::Error::from(e))
     }
 
@@ -86,8 +86,8 @@ impl<'a> Control<'a> {
 }
 
 pub trait Proxy {
-    fn attach(&mut self, ctrl: &mut Control) -> ::Result<()>;
-    fn detach(&mut self, ctrl: &mut Control) -> ::Result<()>;
+    fn attach(&mut self, ctrl: &Control) -> ::Result<()>;
+    fn detach(&mut self, ctrl: &Control) -> ::Result<()>;
 
     fn process(&mut self, ctrl: &mut Control, readiness: mio::Ready, eid: Eid) -> ::Result<()>;
 }
