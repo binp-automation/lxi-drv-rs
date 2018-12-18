@@ -1,6 +1,8 @@
+use std::time::{Duration, Instant};
+
 use mio;
 
-use ::channel::{self, channel, Sender, Receiver, PollReceiver, TryRecvError};
+use ::channel::{self, channel, Sender, Receiver, PollReceiver, TryRecvError, SendError};
 use ::proxy::{self, Proxy, Control, Eid};
 
 
@@ -118,7 +120,9 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ProxyWrapper<P, T, R> {
 }
 
 
-pub trait UserHandle<T: TxExt, R: RxExt> {}
+pub trait UserHandle<T: TxExt, R: RxExt> {
+    fn process_channel(&mut self, msg: R) -> ::Result<()>;
+}
 
 pub struct Handle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
     pub user: H,
@@ -132,40 +136,92 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         Handle { user, tx, rx, closed: false }
     }
 
-    fn close_ref(&mut self) -> ::Result<()> {
+    fn is_closed_msg(msg: R) -> (R, bool) {
+        match msg.into() {
+            Ok(bmsg) => {
+                let v = match bmsg {
+                    Rx::Closed => true,
+                    _ => false,
+                };
+                (bmsg.into(), v)
+            },
+            Err(umsg) => (umsg, false),
+        }
+    }
+
+    fn process(&mut self) -> ::Result<()> {
         if self.closed {
             return Err(proxy::Error::Closed.into());
         }
-        self.closed = true;
 
-        let closed = loop {
+        loop {
             match self.rx.try_recv() {
-                Ok(msg) => match msg.into() {
-                    Ok(Rx::Closed) => break Ok(true),
-                    _ => continue,
+                Ok(msg) => {
+                    let (msg, exit) = Self::is_closed_msg(msg);
+                    match self.user.process_channel(msg) {
+                        Ok(()) => {
+                            if exit {
+                                self.closed = true;
+                                break Err(proxy::Error::Closed.into());
+                            } else {
+                                continue;
+                            }
+                        },
+                        Err(e) => break Err(e),
+                    }
                 },
                 Err(err) => match err {
-                    TryRecvError::Empty => break Ok(false),
+                    TryRecvError::Empty => break Ok(()),
                     TryRecvError::Disconnected => break Err(::Error::from(channel::Error::Disconnected)),
                 },
             };
-        }?;
-
-
-        if closed {
-            return Ok(());
         }
-        
-        self.tx.send(Tx::Close.into()).map_err(|e| ::Error::Channel(e.into()))?;
+    }
 
-        let prx = PollReceiver::new(&self.rx).map_err(|e| ::Error::Channel(e.into()))?;
+    fn process_for(&mut self, timeout: Option<Duration>) -> ::Result<()> {
+        self.process();
+        let prx = PollReceiver::new(&self.rx).map_err(|e| ::Error::Channel(e))?;
+        let now = Instant::now();
         loop {
-            match prx.recv() {
-                Ok(msg) => match msg.into() {
-                    Ok(Rx::Closed) => break Ok(()),
-                    _ => continue,
+            let to = match timeout {
+                Some(to) => {
+                    let ela = now.elapsed();
+                    if (ela >= to) {
+                        break Ok(())
+                    } else {
+                        Some(to - ela)
+                    }
                 },
-                Err(err) => break Err(channel::Error::from(err).into()),
+                None => None
+            };
+
+            match prx.wait(to) {
+                Ok(()) => match self.process() {
+                    Ok(()) => (),
+                    Err(err) => break Err(err)
+                },
+                Err(err) => match err {
+                    channel::RecvError::Empty => break Ok(()),
+                    other_recv_error => break Err(::Error::Channel(other_recv_error.into())),
+                }
+            }
+        }
+    }
+
+    fn close_ref(&mut self) -> ::Result<()> {
+        match self.process().and_then(|_| {
+            match self.tx.send(Tx::Close.into()) {
+                Ok(()) => self.process_for(None),
+                Err(err) => match err {
+                    SendError::Io(io_err) => Err(::Error::Channel(channel::Error::Io(io_err))),
+                    SendError::Disconnected(_) => self.process_for(Some(Duration::from_millis(10))),
+                }
+            }
+        }) {
+            Ok(()) => Err(channel::Error::Empty.into()),
+            Err(err) => match err {
+                ::Error::Proxy(proxy::Error::Closed) => Ok(()),
+                others => Err(others),
             }
         }
     }
@@ -205,7 +261,7 @@ mod test {
 
     use std::thread;
     use std::time::{Duration};
-    //use std::sync::{Arc, atomic::{Ordering, AtomicBool}};
+    use std::sync::{Arc, atomic::{Ordering, AtomicBool}};
 
     use ::test::dummy;
 
@@ -215,8 +271,8 @@ mod test {
 
         h.close_ref().unwrap();
 
-        let hprx = PollReceiver::new(&h.rx).unwrap();
-        assert_matches!(hprx.recv(), Err(RecvError::Disconnected));
+        let hrx = PollReceiver::new(&h.rx).unwrap();
+        assert_matches!(hrx.recv(None), Err(RecvError::Disconnected));
     }
 
     #[test]
@@ -225,26 +281,25 @@ mod test {
 
         thread::spawn(move || {
             let mp = p;
-            let pprx = PollReceiver::new(&mp.rx).unwrap();
-            assert_matches!(pprx.recv(), Ok(Tx::Close));
+            let prx = PollReceiver::new(&mp.rx).unwrap();
+            assert_matches!(prx.recv(None), Ok(Tx::Close));
         });
 
         thread::sleep(Duration::from_millis(10));
         h.close().unwrap();
     }
 
-    /*
     #[test]
     fn drop() {
-        let (tx, rxh) = channel();
-        let (txh, rx) = channel();
-        let mut prx = PollReceiver::new(&rx).unwrap();
+        let (p, h) = dummy::create().unwrap();
+
         let af = Arc::new(AtomicBool::new(false));
         let afc = af.clone();
 
         thread::spawn(move || {
             {
-                DevHandle::new(txh, rxh);
+                let _mh = h;
+                // dropped here
             }
             afc.store(true, Ordering::SeqCst);
         });
@@ -252,14 +307,11 @@ mod test {
         thread::sleep(Duration::from_millis(10));
         assert_eq!(af.load(Ordering::SeqCst), false);
 
-        if let DevTx::Detach = prx.recv().unwrap() {
-            tx.send(DevRx::Detached(dummy_device())).unwrap();
-        } else {
-            panic!();
-        }
+        (move || {
+            let _mp = p;
+        })();
 
         thread::sleep(Duration::from_millis(10));
         assert_eq!(af.load(Ordering::SeqCst), true);
     }
-    */
 }

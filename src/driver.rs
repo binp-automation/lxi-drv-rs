@@ -1,20 +1,17 @@
-mod event_loop;
-
-
 use std::mem;
 use std::thread::{self, JoinHandle};
 
 use ::channel::{channel, Sender};
 use ::proxy::{Proxy};
 
-use self::event_loop::{EventLoop};
+use ::event_loop::{EventLoop};
 
 
 #[derive(Debug)]
 pub enum Error {}
 
 pub enum Tx {
-    Attach(Box<Proxy + Send>),
+    Attach(Box<dyn Proxy + Send>),
     Terminate,
 }
 
@@ -36,7 +33,7 @@ impl Driver {
         })
     }
 
-    pub fn attach(&mut self, proxy: Box<Proxy + Send>) -> ::Result<()> {
+    pub fn attach(&mut self, proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
         match self.tx.send(Tx::Attach(proxy)) {
             Ok(_) => Ok(()),
             Err(err) => Err(::Error::Channel(err.into())),

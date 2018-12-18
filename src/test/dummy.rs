@@ -1,8 +1,17 @@
-use ::proxy::{Proxy, Control, Eid};
-use ::proxy_handle::{self, Tx, Rx, ProxyWrapper, Handle, UserProxy, UserHandle};
+use std::collections::{VecDeque};
 
+use ::proxy::{Proxy, Control, Eid};
+use ::proxy_handle::{self, ProxyWrapper, Handle, UserProxy, UserHandle};
+
+pub use proxy_handle::{Tx, Rx};
 
 pub struct DummyProxy {}
+
+impl DummyProxy {
+	fn new() -> Self {
+		Self {}
+	}
+}
 
 impl Proxy for DummyProxy {
 	fn attach(&mut self, _ctrl: &Control) -> ::Result<()> {
@@ -24,10 +33,25 @@ impl UserProxy<Tx, Rx> for DummyProxy {
 	}
 }
 
-pub struct DummyHandle {}
+pub struct DummyHandle {
+	messages: VecDeque<Rx>,
+}
 
-impl UserHandle<Tx, Rx> for DummyHandle {}
+impl DummyHandle {
+	fn new() -> Self {
+		Self {
+			messages: VecDeque::new(),
+		}
+	}
+}
+
+impl UserHandle<Tx, Rx> for DummyHandle {
+	fn process_channel(&mut self, msg: Rx) -> ::Result<()> {
+		self.messages.push_back(msg);
+		Ok(())
+	}
+}
 
 pub fn create() -> ::Result<(ProxyWrapper<DummyProxy, Tx, Rx>, Handle<DummyHandle, Tx, Rx>)> {
-	proxy_handle::create(DummyProxy {}, DummyHandle {})
+	proxy_handle::create(DummyProxy::new(), DummyHandle::new())
 }

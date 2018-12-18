@@ -12,14 +12,14 @@ use ::driver::{Tx as Rx};
 
 pub struct EventLoop {
     rx: Receiver<Rx>,
-    proxies: BTreeMap<Id, Cell<Option<Box<Proxy>>>>,
+    proxies: BTreeMap<Id, Cell<Option<Box<dyn Proxy + Send>>>>,
     poll: mio::Poll,
 }
 
 struct Context {
     events: Cell<Option<mio::Events>>,
 
-    to_add: Vec<Box<Proxy>>,
+    to_add: Vec<Box<dyn Proxy + Send>>,
     to_del: BTreeSet<Id>,
 
     exit: bool,
@@ -43,7 +43,7 @@ impl Context {
         }
     }
 
-    fn add(&mut self, proxy: Box<Proxy>) -> ::Result<()> {
+    fn add(&mut self, proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
         self.to_add.push(proxy);
         Ok(())
     }
@@ -81,7 +81,7 @@ impl EventLoop {
         Control::new(id, &self.poll)
     }
 
-    fn attach(&mut self, id: Id, mut proxy: Box<Proxy>) -> ::Result<()> {
+    fn attach(&mut self, id: Id, mut proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
         if !self.proxies.contains_key(&id) {
             proxy.attach(&self.control(id)).and_then(|_| {
                 match self.proxies.insert(id, Cell::new(Some(proxy))) {
@@ -94,7 +94,7 @@ impl EventLoop {
         }
     }
 
-    fn detach(&mut self, id: Id) -> ::Result<Box<Proxy>> {
+    fn detach(&mut self, id: Id) -> ::Result<Box<dyn Proxy + Send>> {
         match self.proxies.remove(&id) {
             Some(proxy_cell) => {
                 let mut proxy = proxy_cell.into_inner().unwrap();
@@ -203,4 +203,74 @@ impl EventLoop {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::thread;
+    use std::sync::{Arc, Mutex};
+
+    use ::channel::{channel, Sender, PollReceiver, SendError};
+
+    use ::test::dummy;
+
+
+    fn loop_wrap<F: FnOnce(Arc<Mutex<EventLoop>>, &Sender<Rx>)>(f: F) {
+        let (tx, rx) = channel();
+        let el = Arc::new(Mutex::new(EventLoop::new(rx).unwrap()));
+        let elc = el.clone();
+        let jh = thread::spawn(move || {
+            let mut ctx = Context::new(16);
+            while !ctx.exit {
+                elc.lock().unwrap().run_once(&mut ctx, Some(Duration::from_millis(10))).unwrap();
+                thread::sleep(Duration::from_millis(1));
+            }
+        });
+
+        f(el, &tx);
+
+        match tx.send(Rx::Terminate) {
+            Ok(_) => (),
+            Err(err) => match err {
+                SendError::Disconnected(_) => (),
+                xe => panic!("{:?}", xe),
+            }
+        }
+        jh.join().unwrap();
+    }
+
+    #[test]
+    fn run() {
+        loop_wrap(|_, _| {});
+    }
+
+    #[test]
+    fn terminate() {
+        loop_wrap(|_, tx| {
+            tx.send(Rx::Terminate).unwrap();
+        });
+    }
+    /*
+    #[test]
+    fn attach_detach() {
+        loop_wrap(|el, tx| {
+            let (p, h) = dummy::create().unwrap();
+            let mut hrx = PollReceiver::new(&h.rx).unwrap();
+
+            tx.send(Rx::Attach(Box::new(p))).unwrap();
+            //thread::sleep(Duration::from_millis(10));
+
+            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Attached);
+            assert_eq!(el.lock().unwrap().proxies.len(), 1);
+
+            h.tx.send(dummy::Tx::Close).unwrap();
+
+            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Detached);
+            assert_eq!(el.lock().unwrap().devs.len(), 0);
+            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Detached);
+        });
+    }
+    */
 }

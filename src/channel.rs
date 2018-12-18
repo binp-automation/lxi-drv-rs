@@ -1,5 +1,6 @@
 use std::io;
 use std::cell::{Cell};
+use std::time::{Duration};
 use std::sync::mpsc::{self as std_chan};
 use std::error::{Error as StdError};
 use std::fmt;
@@ -15,6 +16,7 @@ pub use self::std_chan::TryRecvError;
 pub enum RecvError {
     Io(io::Error),
     Disconnected,
+    Empty,
 }
 
 impl StdError for RecvError {
@@ -22,6 +24,7 @@ impl StdError for RecvError {
         match self {
             RecvError::Io(e) => e.description(),
             RecvError::Disconnected => "Channel disconnected",
+            RecvError::Empty => "Channel empty",
         }
     }
 
@@ -29,6 +32,7 @@ impl StdError for RecvError {
         match self {
             RecvError::Io(e) => Some(e),
             RecvError::Disconnected => None,
+            RecvError::Empty => None,
         }
     }
 }
@@ -43,6 +47,7 @@ impl fmt::Display for RecvError {
 pub enum Error {
     Io(io::Error),
     Disconnected,
+    Empty,
 }
 
 impl StdError for Error {
@@ -50,6 +55,7 @@ impl StdError for Error {
         match self {
             Error::Io(e) => e.description(),
             Error::Disconnected => "Channel disconnected",
+            Error::Empty => "Channel empty",
         }
     }
 
@@ -57,6 +63,7 @@ impl StdError for Error {
         match self {
             Error::Io(e) => Some(e),
             Error::Disconnected => None,
+            Error::Empty => None,
         }
     }
 }
@@ -81,15 +88,16 @@ impl From<RecvError> for Error {
         match err {
             RecvError::Io(io_err) => Error::Io(io_err),
             RecvError::Disconnected => Error::Disconnected,
+            RecvError::Empty => Error::Empty,
         }
     }
 }
 
-impl RecvError {
-    pub fn from_try(err: TryRecvError) -> Option<Self> {
+impl From<TryRecvError> for Error {
+    fn from(err: TryRecvError) -> Self {
         match err {
-            TryRecvError::Disconnected => Some(RecvError::Disconnected),
-            TryRecvError::Empty => None,
+            TryRecvError::Disconnected => Error::Disconnected,
+            TryRecvError::Empty => Error::Empty,
         }
     }
 }
@@ -119,31 +127,37 @@ impl<'a, T> PollReceiver<'a, T> {
         })
     }
 
-    pub fn recv(&self) -> Result<T, RecvError> {
+    pub fn wait(&self, timeout: Option<Duration>) -> Result<(), RecvError> {
+        let mut events = self.events.replace(None).unwrap();
+
+        let res = self.poll.poll(&mut events, timeout).map_err(|e| RecvError::Io(e)).and_then(|_| {
+            match events.iter().next() {
+                Some(res) => {
+                    assert!(res.token() == mio::Token(0) && res.readiness().is_readable());
+                    Ok(())
+                },
+                None => Err(RecvError::Empty),
+            }
+        });
+
+        self.events.replace(Some(events));
+
+        res
+    }
+
+    pub fn recv(&self, timeout: Option<Duration>) -> Result<T, RecvError> {
         match self.rx.try_recv() {
             Ok(msg) => Ok(msg),
             Err(err) => match err {
-                TryRecvError::Empty => {
-                    let mut events = self.events.replace(None).unwrap();
-
-                    let res = self.poll.poll(&mut events, None).map_err(|e| RecvError::Io(e)).and_then(|_| {
-                        match events.iter().next() {
-                            Some(res) => assert!(res.token() == mio::Token(0) && res.readiness().is_readable()),
-                            None => unreachable!(),
+                TryRecvError::Empty => self.wait(timeout).and_then(|_| {
+                    match self.rx.try_recv() {
+                        Ok(msg) => Ok(msg),
+                        Err(err) => match err {
+                            TryRecvError::Empty => unreachable!(),
+                            TryRecvError::Disconnected => Err(RecvError::Disconnected),
                         }
-                        match self.rx.try_recv() {
-                            Ok(msg) => Ok(msg),
-                            Err(err) => match err {
-                                TryRecvError::Empty => unreachable!(),
-                                TryRecvError::Disconnected => Err(RecvError::Disconnected),
-                            }
-                        }
-                    });
-
-                    self.events.replace(Some(events));
-
-                    res
-                }
+                    }
+                }),
                 TryRecvError::Disconnected => Err(RecvError::Disconnected),
             }
         }
@@ -184,7 +198,7 @@ mod test {
         let prx = PollReceiver::new(&rx).unwrap();
 
         tx.send(42 as i32).unwrap();
-        let n = prx.recv().unwrap();
+        let n = prx.recv(None).unwrap();
         
         assert_eq!(n, 42);
     }
@@ -199,14 +213,10 @@ mod test {
         });
         thread::sleep(Duration::from_millis(10));
 
-        let n = prx.recv().unwrap();
+        let n = prx.recv(None).unwrap();
         assert_eq!(n, 42);
 
-        if let Err(RecvError::Disconnected) = prx.recv() {
-            // ok
-        } else {
-            panic!();
-        }
+        assert_matches!(prx.recv(None), Err(RecvError::Disconnected));
     }
 
     #[test]
@@ -219,14 +229,10 @@ mod test {
             tx.send(42 as i32).unwrap();
         });
 
-        let n = prx.recv().unwrap();
+        let n = prx.recv(None).unwrap();
         assert_eq!(n, 42);
 
-        if let Err(RecvError::Disconnected) = prx.recv() {
-            // ok
-        } else {
-            panic!();
-        }
+        assert_matches!(prx.recv(None), Err(RecvError::Disconnected));
     }
 
     #[test]

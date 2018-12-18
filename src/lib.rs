@@ -1,12 +1,14 @@
 extern crate mio;
 extern crate mio_extras;
 
-mod error;
-mod result;
+pub mod error;
+pub mod result;
 
 pub mod channel;
 pub mod proxy;
 pub mod proxy_handle;
+
+mod event_loop;
 pub mod driver;
 
 pub use error::{Error};
