@@ -1,7 +1,7 @@
 use mio;
 
 use ::channel::{self, channel, Sender, Receiver, PollReceiver, TryRecvError};
-use ::proxy::{self, Control, Eid};
+use ::proxy::{self, Proxy, Control, Eid};
 
 
 #[derive(Debug)]
@@ -35,23 +35,23 @@ impl TxExt for Tx {}
 impl RxExt for Rx {}
 
 
-pub trait UserProxy<T: TxExt, R: RxExt>: proxy::Proxy {
+pub trait UserProxy<T: TxExt, R: RxExt>: Proxy {
     fn process_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
 }
 
-pub struct Proxy<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
+pub struct ProxyWrapper<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
     pub user: P,
     pub tx: Sender<R>,
     pub rx: Receiver<T>,
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy<P, T, R> {
-    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> Proxy<P, T, R> {
-        Proxy { user, tx, rx }
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> ProxyWrapper<P, T, R> {
+    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> ProxyWrapper<P, T, R> {
+        ProxyWrapper { user, tx, rx }
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
     fn attach(&mut self, ctrl: &Control) -> ::Result<()> {
         ctrl.register(&self.rx, 0, mio::Ready::readable(), mio::PollOpt::edge())
         .and_then(|_| {
@@ -111,7 +111,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for Proxy<P, T, R> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ProxyWrapper<P, T, R> {
     fn drop(&mut self) {
         self.tx.send(Rx::Closed.into()).unwrap()
     }
@@ -187,11 +187,11 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
     }
 }
 
-pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
+pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(ProxyWrapper<P, T, R>, Handle<H, T, R>)>
 where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
-    let proxy = Proxy::new(user_proxy, ptx, prx);
+    let proxy = ProxyWrapper::new(user_proxy, ptx, prx);
     let handle = Handle::new(user_handle, htx, hrx);
     Ok((proxy, handle))
 }

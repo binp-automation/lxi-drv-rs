@@ -1,10 +1,10 @@
-use ::proxy::{self, Control, Eid};
-use ::wrapper::{self as cw, Tx, Rx, Proxy, Handle, UserProxy, UserHandle};
+use ::proxy::{Proxy, Control, Eid};
+use ::proxy_handle::{self, Tx, Rx, ProxyWrapper, Handle, UserProxy, UserHandle};
 
 
 pub struct DummyProxy {}
 
-impl proxy::Proxy for DummyProxy {
+impl Proxy for DummyProxy {
 	fn attach(&mut self, _ctrl: &Control) -> ::Result<()> {
 		Ok(())
 	}
@@ -28,6 +28,6 @@ pub struct DummyHandle {}
 
 impl UserHandle<Tx, Rx> for DummyHandle {}
 
-pub fn create() -> ::Result<(Proxy<DummyProxy, Tx, Rx>, Handle<DummyHandle, Tx, Rx>)> {
-	cw::create(DummyProxy {}, DummyHandle {})
+pub fn create() -> ::Result<(ProxyWrapper<DummyProxy, Tx, Rx>, Handle<DummyHandle, Tx, Rx>)> {
+	proxy_handle::create(DummyProxy {}, DummyHandle {})
 }
