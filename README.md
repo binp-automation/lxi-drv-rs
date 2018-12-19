@@ -1,24 +1,32 @@
-# LXI Driver
+# Mdrv
 
-[![Travis][travis_badge]][travis]
-[![Codecov][codecov_badge]][codecov]
+[![Crates.io][crates_badge]][crates]
+[![Docs.rs][docs_badge]][docs]
+[![Travis CI][travis_badge]][travis]
+[![Codecov.io][codecov_badge]][codecov]
+[![License][license_badge]][license]
 
-[travis_badge]: https://travis-ci.org/binp-automation/lxi-drv-rs.svg?branch=develop
-[codecov_badge]: https://codecov.io/gh/binp-automation/lxi-drv-rs/branch/develop/graphs/badge.svg
+[crates_badge]: https://img.shields.io/crates/v/mdrv.svg
+[docs_badge]: https://docs.rs/mdrv/badge.svg
+[travis_badge]: https://api.travis-ci.org/binp-automation/mdrv.svg
+[codecov_badge]: https://codecov.io/gh/binp-automation/mdrv/graphs/badge.svg
+[license_badge]: https://img.shields.io/crates/l/mdrv.svg
 
-[travis]: https://travis-ci.org/binp-automation/lxi-drv-rs
-[codecov]: https://codecov.io/gh/binp-automation/lxi-drv-rs
+[crates]: https://crates.io/crates/mdrv
+[docs]: https://docs.rs/mdrv
+[travis]: https://travis-ci.org/binp-automation/mdrv
+[codecov]: https://codecov.io/gh/binp-automation/mdrv
+[license]: https://github.com/binp-automation/mdrv#license
 
-Driver for binding LXI devices to EPICS control system
+Modular driver based on [Mio](https://github.com/carllerche/mio) for managing multiple connections over different protocols
 
 ## Documentation
-
-+ [Develop branch documentation](https://binp-automation.github.io/lxi-drv-rs/target/doc/lxidrv/)
-
++ [`crates.io` version documentation](https://docs.rs/mdrv)
++ [`develop` branch documentation](https://binp-automation.github.io/mdrv/target/doc/mdrv/)
 
 ## Architecture
 
-[![Architecture scheme](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg?sanitize=true)](https://binp-automation.github.io/lxi-drv-rs/res/arch.svg)
+[![Architecture sample scheme](https://binp-automation.github.io/mdrv/res/arch.svg?sanitize=true)](https://binp-automation.github.io/mdrv/res/arch.svg)
 
 ## License
 

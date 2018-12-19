@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Rx",""],["Tx",""]],"fn":[["create",""]],"struct":[["Handle",""],["ProxyWrapper",""]],"trait":[["RxExt",""],["TxExt",""],["UserHandle",""],["UserProxy",""]]});

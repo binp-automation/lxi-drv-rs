@@ -1,7 +1,15 @@
 [package]
-name = "lxidrv"
+name = "mdrv"
 version = "0.0.4"
 authors = ["Alexey Gerasev <alexey.gerasev@gmail.com>"]
+description = "Modular driver based on Mio for managing multiple connections over different protocols"
+documentation = "https://docs.rs/mdrv"
+homepage = "https://github.com/binp-automation/mdrv"
+repository = "https://github.com/binp-automation/mdrv"
+readme = "README.md"
+keywords = ["async", "non-blocking", "io", "event", "driver"]
+categories = ["asynchronous", "network-programming", "science"]
+license = "MIT/Apache-2.0"
 
 [dependencies]
 mio = "0.6"
