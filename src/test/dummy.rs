@@ -34,20 +34,20 @@ impl UserProxy<Tx, Rx> for DummyProxy {
 }
 
 pub struct DummyHandle {
-	messages: VecDeque<Rx>,
+	pub msgs: VecDeque<Rx>,
 }
 
 impl DummyHandle {
 	fn new() -> Self {
 		Self {
-			messages: VecDeque::new(),
+			msgs: VecDeque::new(),
 		}
 	}
 }
 
 impl UserHandle<Tx, Rx> for DummyHandle {
 	fn process_channel(&mut self, msg: Rx) -> ::Result<()> {
-		self.messages.push_back(msg);
+		self.msgs.push_back(msg);
 		Ok(())
 	}
 }

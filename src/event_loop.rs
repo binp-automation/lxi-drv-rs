@@ -212,7 +212,7 @@ mod test {
     use std::thread;
     use std::sync::{Arc, Mutex};
 
-    use ::channel::{channel, Sender, PollReceiver, SendError};
+    use ::channel::{channel, Sender, SendError};
 
     use ::test::dummy;
 
@@ -252,25 +252,25 @@ mod test {
             tx.send(Rx::Terminate).unwrap();
         });
     }
-    /*
+    
     #[test]
     fn attach_detach() {
         loop_wrap(|el, tx| {
-            let (p, h) = dummy::create().unwrap();
-            let mut hrx = PollReceiver::new(&h.rx).unwrap();
+            let (p, mut h) = dummy::create().unwrap();
 
             tx.send(Rx::Attach(Box::new(p))).unwrap();
-            //thread::sleep(Duration::from_millis(10));
+            h.process_for(Some(Duration::from_millis(10))).unwrap();
 
-            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Attached);
+            assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Attached));
+            assert_matches!(h.user.msgs.pop_front(), None);
             assert_eq!(el.lock().unwrap().proxies.len(), 1);
 
-            h.tx.send(dummy::Tx::Close).unwrap();
+            h.close_ref().unwrap();
 
-            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Detached);
-            assert_eq!(el.lock().unwrap().devs.len(), 0);
-            assert_matches!(hrx.recv().unwrap(), dummy::Rx::Detached);
+            assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Detached));
+            assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Closed));
+            assert_matches!(h.user.msgs.pop_front(), None);
+            assert_eq!(el.lock().unwrap().proxies.len(), 0);
         });
     }
-    */
 }

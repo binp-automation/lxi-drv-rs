@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use mio;
 
-use ::channel::{self, channel, Sender, Receiver, PollReceiver, TryRecvError, SendError};
+use ::channel::{self, channel, Sender, Receiver, SinglePoll, TryRecvError, SendError};
 use ::proxy::{self, Proxy, Control, Eid};
 
 
@@ -149,7 +149,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         }
     }
 
-    fn process(&mut self) -> ::Result<()> {
+    pub fn process(&mut self) -> ::Result<()> {
         if self.closed {
             return Err(proxy::Error::Closed.into());
         }
@@ -178,15 +178,15 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         }
     }
 
-    fn process_for(&mut self, timeout: Option<Duration>) -> ::Result<()> {
-        self.process();
-        let prx = PollReceiver::new(&self.rx).map_err(|e| ::Error::Channel(e))?;
+    pub fn process_for(&mut self, timeout: Option<Duration>) -> ::Result<()> {
+        self.process()?;
+        let poll = SinglePoll::new(&self.rx).map_err(|e| ::Error::Channel(e))?;
         let now = Instant::now();
         loop {
             let to = match timeout {
                 Some(to) => {
                     let ela = now.elapsed();
-                    if (ela >= to) {
+                    if ela >= to {
                         break Ok(())
                     } else {
                         Some(to - ela)
@@ -195,7 +195,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
                 None => None
             };
 
-            match prx.wait(to) {
+            match poll.wait(to) {
                 Ok(()) => match self.process() {
                     Ok(()) => (),
                     Err(err) => break Err(err)
@@ -208,7 +208,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         }
     }
 
-    fn close_ref(&mut self) -> ::Result<()> {
+    pub(crate) fn close_ref(&mut self) -> ::Result<()> {
         match self.process().and_then(|_| {
             match self.tx.send(Tx::Close.into()) {
                 Ok(()) => self.process_for(None),
@@ -257,7 +257,7 @@ where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
 mod test {
     use super::*;
 
-    use ::channel::{RecvError};
+    use ::channel::{RecvError, PollReceiver};
 
     use std::thread;
     use std::time::{Duration};
@@ -271,7 +271,7 @@ mod test {
 
         h.close_ref().unwrap();
 
-        let hrx = PollReceiver::new(&h.rx).unwrap();
+        let hrx = PollReceiver::new(&h.rx, None).unwrap();
         assert_matches!(hrx.recv(None), Err(RecvError::Disconnected));
     }
 
@@ -281,7 +281,7 @@ mod test {
 
         thread::spawn(move || {
             let mp = p;
-            let prx = PollReceiver::new(&mp.rx).unwrap();
+            let prx = PollReceiver::new(&mp.rx, None).unwrap();
             assert_matches!(prx.recv(None), Ok(Tx::Close));
         });
 
