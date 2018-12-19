@@ -50,46 +50,80 @@ impl Drop for Driver {
 }
 
 
-/*
 #[cfg(test)]
 mod test {
     use super::*;
 
-    fn dummy_device() -> DevProxy {
-        dummy_dev_port(8000)
+    use ::channel::{SinglePoll};
+    use ::proxy_handle::{ProxyWrapper, Handle};
+    use ::test::dummy::{self, wait_msgs, wait_close, DummyProxy, DummyHandle};
+
+    fn create_dummy() -> (
+        ProxyWrapper<DummyProxy, dummy::Tx, dummy::Rx>,
+        Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        SinglePoll,
+    ) {
+        let (p, h) = dummy::create().unwrap();
+        let sp = SinglePoll::new(&h.rx).unwrap();
+        (p, h, sp)
     }
 
-    fn dummy_dev_port(port: u16) -> DevProxy {
-        DevProxy {
-            addr: Addr::Dns(String::from("localhost"), port),
-        }
+    fn test_attach(
+        h: &mut Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        sp: &mut SinglePoll,
+    ) {
+        wait_msgs(h, sp, 1).unwrap();
+        assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Attached));
+        assert_matches!(h.user.msgs.pop_front(), None);
+    }
+
+    fn test_detach(
+        h: &mut Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        sp: &mut SinglePoll,
+    ) {
+        wait_close(h, sp).unwrap();
+        assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Detached));
+        assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Closed));
+        assert_matches!(h.user.msgs.pop_front(), None);
     }
 
     #[test]
     fn add_remove() {
         let mut drv = Driver::new().unwrap();
-        let dev = dummy_device();
-        let dh = drv.attach(dev).unwrap();
-        dh.detach().unwrap();
+        let (p, mut h, mut sp) = create_dummy();
+
+        drv.attach(Box::new(p)).unwrap();
+        test_attach(&mut h, &mut sp);
+
+        h.close().unwrap();
+        test_detach(&mut h, &mut sp);
     }
 
     #[test]
-    fn add_remove_many() {
+    fn add_remove_multiple() {
         let mut drv = Driver::new().unwrap();
-        let devs = (0..16).map(|i| dummy_dev_port(8000 + i));
-        let mut dhs = Vec::new();
-        for dev in devs {
-            dhs.push(drv.attach(dev).unwrap());
+        let phs = (0..16).map(|_| create_dummy());
+        let mut hs = Vec::new();
+
+        for (p, h, sp) in phs {
+            drv.attach(Box::new(p)).unwrap();
+            hs.push((h, sp));
         }
-        for (i, dh) in dhs.drain(..).enumerate() {
-            let dev = dh.detach().unwrap();
-            if let Addr::Dns(_, p) = dev.addr {
-                assert_eq!(p as usize, 8000 + i);
-            } else {
-                panic!();
-            }
+
+        for (h, sp) in hs.iter_mut() {
+            test_attach(h, sp);
         }
-        assert_eq!(dhs.len(), 0);
+
+        for (h, _) in hs.iter_mut() {
+            h.close().unwrap();
+        }
+
+        for (h, sp) in hs.iter_mut() {
+            test_detach(h, sp);
+        }
+
+        for (h, _) in hs.iter() {
+            assert_eq!(h.is_closed(), true);
+        }
     }
 }
-*/

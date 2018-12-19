@@ -1,8 +1,6 @@
-use std::time::{Duration, Instant};
-
 use mio;
 
-use ::channel::{self, channel, Sender, Receiver, SinglePoll, TryRecvError, SendError};
+use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
 use ::proxy::{self, Proxy, Control, Eid};
 
 
@@ -76,8 +74,16 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
     }
     fn detach(&mut self, ctrl: &Control) -> ::Result<()> {
         self.user.detach(ctrl)
-        .and(ctrl.deregister(&self.rx))
-        .and(self.tx.send(Rx::Detached.into()).map_err(|e| ::Error::Channel(e.into())))
+        .and_then(|_| { ctrl.deregister(&self.rx) })
+        .and_then(|_| {
+            match self.tx.send(Rx::Detached.into()) {
+                Ok(()) => Ok(()),
+                Err(err) => match err {
+                    SendError::Disconnected(_) => Ok(()),
+                    other => Err(::Error::Channel(other.into())),
+                }
+            }
+        })
     }
 
     fn process(&mut self, ctrl: &mut Control, readiness: mio::Ready, eid: Eid) -> ::Result<()> {
@@ -115,7 +121,13 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
 
 impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ProxyWrapper<P, T, R> {
     fn drop(&mut self) {
-        self.tx.send(Rx::Closed.into()).unwrap()
+        match self.tx.send(Rx::Closed.into()) {
+            Ok(()) => (),
+            Err(err) => match err {
+                SendError::Disconnected(_) => (),
+                other => panic!("{:?}", other),
+            }
+        }
     }
 }
 
@@ -136,7 +148,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         Handle { user, tx, rx, closed: false }
     }
 
-    fn is_closed_msg(msg: R) -> (R, bool) {
+    fn is_exit(msg: R) -> (R, bool) {
         match msg.into() {
             Ok(bmsg) => {
                 let v = match bmsg {
@@ -157,7 +169,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         loop {
             match self.rx.try_recv() {
                 Ok(msg) => {
-                    let (msg, exit) = Self::is_closed_msg(msg);
+                    let (msg, exit) = Self::is_exit(msg);
                     match self.user.process_channel(msg) {
                         Ok(()) => {
                             if exit {
@@ -178,65 +190,25 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
         }
     }
 
-    pub fn process_for(&mut self, timeout: Option<Duration>) -> ::Result<()> {
-        self.process()?;
-        let poll = SinglePoll::new(&self.rx).map_err(|e| ::Error::Channel(e))?;
-        let now = Instant::now();
-        loop {
-            let to = match timeout {
-                Some(to) => {
-                    let ela = now.elapsed();
-                    if ela >= to {
-                        break Ok(())
-                    } else {
-                        Some(to - ela)
-                    }
-                },
-                None => None
-            };
-
-            match poll.wait(to) {
-                Ok(()) => match self.process() {
-                    Ok(()) => (),
-                    Err(err) => break Err(err)
-                },
-                Err(err) => match err {
-                    channel::RecvError::Empty => break Ok(()),
-                    other_recv_error => break Err(::Error::Channel(other_recv_error.into())),
-                }
-            }
+    pub fn close(&mut self) -> ::Result<()> {
+        if self.closed {
+            return Err(proxy::Error::Closed.into());
         }
+        self.tx.send(Tx::Close.into()).map_err(|e| ::Error::Channel(e.into()))
     }
 
-    pub(crate) fn close_ref(&mut self) -> ::Result<()> {
-        match self.process().and_then(|_| {
-            match self.tx.send(Tx::Close.into()) {
-                Ok(()) => self.process_for(None),
-                Err(err) => match err {
-                    SendError::Io(io_err) => Err(::Error::Channel(channel::Error::Io(io_err))),
-                    SendError::Disconnected(_) => self.process_for(Some(Duration::from_millis(10))),
-                }
-            }
-        }) {
-            Ok(()) => Err(channel::Error::Empty.into()),
-            Err(err) => match err {
-                ::Error::Proxy(proxy::Error::Closed) => Ok(()),
-                others => Err(others),
-            }
-        }
-    }
-
-    pub fn close(mut self) -> ::Result<()> {
-        self.close_ref()
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 }
 
 impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
     fn drop(&mut self) {
-        match self.close_ref() {
+        match self.close() {
             Ok(_) => (),
             Err(err) => match err {
                 ::Error::Proxy(proxy::Error::Closed) => (),
+                ::Error::Channel(channel::Error::Disconnected) => (),
                 other => panic!("{:?}", other),
             },
         }
@@ -257,61 +229,58 @@ where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
 mod test {
     use super::*;
 
-    use ::channel::{RecvError, PollReceiver};
+    use ::channel::{SinglePoll, PollReceiver, RecvError};
 
     use std::thread;
-    use std::time::{Duration};
-    use std::sync::{Arc, atomic::{Ordering, AtomicBool}};
 
     use ::test::dummy;
 
     #[test]
-    fn close_after() {
+    fn handle_close_after() {
         let (_, mut h) = dummy::create().unwrap();
 
-        h.close_ref().unwrap();
+        assert_matches!(h.close(), Err(::Error::Channel(channel::Error::Disconnected)));
 
-        let hrx = PollReceiver::new(&h.rx, None).unwrap();
-        assert_matches!(hrx.recv(None), Err(RecvError::Disconnected));
+        assert_eq!(h.is_closed(), false);
+
+        assert_matches!(h.process(), Err(::Error::Proxy(proxy::Error::Closed)));
+        assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
+        assert_matches!(h.user.msgs.pop_front(), None);
+        assert_eq!(h.is_closed(), true);
+
+        assert_matches!(h.rx.try_recv(), Err(TryRecvError::Disconnected));
     }
 
     #[test]
-    fn close_before() {
-        let (p, h) = dummy::create().unwrap();
+    fn handle_close_before() {
+        let (p, mut h) = dummy::create().unwrap();
 
         thread::spawn(move || {
             let mp = p;
-            let prx = PollReceiver::new(&mp.rx, None).unwrap();
+            let mut prx = PollReceiver::new(&mp.rx).unwrap();
             assert_matches!(prx.recv(None), Ok(Tx::Close));
         });
 
-        thread::sleep(Duration::from_millis(10));
+        h.process().unwrap();
+
         h.close().unwrap();
+        assert_eq!(h.is_closed(), false);
+
+        let mut sp = SinglePoll::new(&h.rx).unwrap();
+        sp.wait(None).unwrap();
+        assert_matches!(h.process(), Err(::Error::Proxy(proxy::Error::Closed)));
+
+        assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
+        assert_matches!(h.user.msgs.pop_front(), None);
+        assert_eq!(h.is_closed(), true);
     }
 
     #[test]
-    fn drop() {
-        let (p, h) = dummy::create().unwrap();
+    fn handle_drop() {
+        let (p, _) = dummy::create().unwrap();
 
-        let af = Arc::new(AtomicBool::new(false));
-        let afc = af.clone();
-
-        thread::spawn(move || {
-            {
-                let _mh = h;
-                // dropped here
-            }
-            afc.store(true, Ordering::SeqCst);
-        });
-
-        thread::sleep(Duration::from_millis(10));
-        assert_eq!(af.load(Ordering::SeqCst), false);
-
-        (move || {
-            let _mp = p;
-        })();
-
-        thread::sleep(Duration::from_millis(10));
-        assert_eq!(af.load(Ordering::SeqCst), true);
+        let mut prx = PollReceiver::new(&p.rx).unwrap();
+        assert_matches!(prx.recv(None), Ok(Tx::Close));
+        assert_matches!(prx.recv(None), Err(RecvError::Disconnected));
     }
 }

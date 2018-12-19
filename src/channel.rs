@@ -1,5 +1,4 @@
 use std::io;
-use std::cell::{Cell};
 use std::time::{Duration};
 use std::sync::mpsc::{self as std_chan};
 use std::error::{Error as StdError};
@@ -105,9 +104,10 @@ impl From<TryRecvError> for Error {
     }
 }
 
+
 pub struct SinglePoll {
     pub poll: mio::Poll,
-    pub events: Cell<Option<mio::Events>>,
+    pub events: mio::Events,
 }
 
 impl SinglePoll {
@@ -119,37 +119,44 @@ impl SinglePoll {
             mio::Ready::readable(),
             mio::PollOpt::edge()
         ).map_err(|e| Error::Io(e))?;
+        let events = mio::Events::with_capacity(1);
 
-        Ok(Self {
-            poll,
-            events: Cell::new(Some(mio::Events::with_capacity(1))),
-        })
+        Ok(Self { poll, events })
     }
 
-    pub fn wait(&self, timeout: Option<Duration>) -> Result<(), RecvError> {
-        let mut events = self.events.replace(None).unwrap();
-
-        let res = self.poll.poll(&mut events, timeout).map_err(|e| RecvError::Io(e)).and_then(|_| {
-            match events.iter().next() {
+    pub fn wait(&mut self, timeout: Option<Duration>) -> Result<(), RecvError> {
+        self.poll.poll(&mut self.events, timeout).map_err(|e| RecvError::Io(e)).and_then(|_| {
+            match self.events.iter().next() {
                 Some(res) => {
                     assert!(res.token() == mio::Token(0) && res.readiness().is_readable());
                     Ok(())
                 },
                 None => Err(RecvError::Empty),
             }
-        });
+        })
+    }
+}
 
-        self.events.replace(Some(events));
+pub struct PollReceiver<'a, T: 'a> {
+    pub rx: &'a Receiver<T>,
+    pub poll: SinglePoll,
+}
 
-        res
+impl<'a, T> PollReceiver<'a, T> {
+    pub fn new(rx: &'a Receiver<T>) -> Result<Self, Error> {
+        Ok(Self { rx, poll: SinglePoll::new(&rx)? })
     }
 
-    pub fn recv<T>(&self, rx: &Receiver<T>, timeout: Option<Duration>) -> Result<T, RecvError> {
-        match rx.try_recv() {
+    pub fn wait(&mut self, timeout: Option<Duration>) -> Result<(), RecvError> {
+        self.poll.wait(timeout)
+    }
+
+    pub fn recv(&mut self, timeout: Option<Duration>) -> Result<T, RecvError> {
+        match self.rx.try_recv() {
             Ok(msg) => Ok(msg),
             Err(err) => match err {
                 TryRecvError::Empty => self.wait(timeout).and_then(|_| {
-                    match rx.try_recv() {
+                    match self.rx.try_recv() {
                         Ok(msg) => Ok(msg),
                         Err(err) => match err {
                             TryRecvError::Empty => unreachable!(),
@@ -160,32 +167,6 @@ impl SinglePoll {
                 TryRecvError::Disconnected => Err(RecvError::Disconnected),
             }
         }
-    }
-}
-
-pub struct PollReceiver<'a, T: 'a> {
-    pub rx: &'a Receiver<T>,
-    pub poll: SinglePoll,
-}
-
-impl<'a, T> PollReceiver<'a, T> {
-    pub fn new(rx: &'a Receiver<T>, poll_opt: Option<SinglePoll>) -> Result<PollReceiver<T>, Error> {
-        match poll_opt {
-            Some(poll) => Ok(Self { rx, poll }),
-            None => {
-                SinglePoll::new(&rx).and_then(|poll| {
-                    Ok(Self { rx, poll })
-                })
-            },
-        }
-    }
-
-    pub fn wait(&self, timeout: Option<Duration>) -> Result<(), RecvError> {
-        self.poll.wait(timeout)
-    }
-
-    pub fn recv(&self, timeout: Option<Duration>) -> Result<T, RecvError> {
-        self.poll.recv(self.rx, timeout)
     }
 }
 
@@ -220,7 +201,7 @@ mod test {
     #[test]
     fn send_pollrecv() {
         let (tx, rx) = channel();
-        let prx = PollReceiver::new(&rx, None).unwrap();
+        let mut prx = PollReceiver::new(&rx).unwrap();
 
         tx.send(42 as i32).unwrap();
         let n = prx.recv(None).unwrap();
@@ -229,9 +210,9 @@ mod test {
     }
 
     #[test]
-    fn send_close_pollrecv() {
+    fn send_close_poll_recv() {
         let (tx, rx) = channel();
-        let prx = PollReceiver::new(&rx, None).unwrap();
+        let mut prx = PollReceiver::new(&rx).unwrap();
 
         thread::spawn(move || {
             tx.send(42 as i32).unwrap();
@@ -245,9 +226,9 @@ mod test {
     }
 
     #[test]
-    fn send_pollrecv_close() {
+    fn send_poll_recv_close() {
         let (tx, rx) = channel();
-        let prx = PollReceiver::new(&rx, None).unwrap();
+        let mut prx = PollReceiver::new(&rx).unwrap();
 
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(10));
@@ -261,6 +242,22 @@ mod test {
     }
 
     #[test]
+    fn send_close_poll_wait() {
+        let (tx, rx) = channel();
+        let mut prx = PollReceiver::new(&rx).unwrap();
+
+        thread::spawn(move || {
+            tx.send(42 as i32).unwrap();
+        });
+        thread::sleep(Duration::from_millis(10));
+
+        let n = prx.recv(None).unwrap();
+        assert_eq!(n, 42);
+
+        assert_matches!(prx.wait(None), Ok(()));
+    }
+
+    #[test]
     fn close_send() {
         let tx = channel().0;
 
@@ -271,4 +268,11 @@ mod test {
         }
     }
 
+    #[test]
+    fn multiple_polls() {
+        let (_tx, rx) = channel::<i32>();
+
+        PollReceiver::new(&rx).unwrap();
+        assert_matches!(PollReceiver::new(&rx).err(), Some(Error::Io(_)));
+    }
 }

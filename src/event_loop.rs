@@ -10,12 +10,6 @@ use ::proxy::{self, Id, Eid, Proxy, Control};
 use ::driver::{Tx as Rx};
 
 
-pub struct EventLoop {
-    rx: Receiver<Rx>,
-    proxies: BTreeMap<Id, Cell<Option<Box<dyn Proxy + Send>>>>,
-    poll: mio::Poll,
-}
-
 struct Context {
     events: Cell<Option<mio::Events>>,
 
@@ -52,6 +46,12 @@ impl Context {
         self.to_del.insert(id);
         Ok(())
     }
+}
+
+pub struct EventLoop {
+    rx: Receiver<Rx>,
+    proxies: BTreeMap<Id, Cell<Option<Box<dyn Proxy + Send>>>>,
+    poll: mio::Poll,
 }
 
 impl EventLoop {
@@ -112,12 +112,11 @@ impl EventLoop {
             Some(ref proxy_cell) => {
                 let mut proxy = proxy_cell.take().unwrap();
                 let mut ctrl = self.control(id);
-                proxy.process(&mut ctrl, ready, eid).and_then(|_| {
+                let res = proxy.process(&mut ctrl, ready, eid).and_then(|_| {
                     ctx.apply(&ctrl)
-                }).or_else(|e| {
-                    proxy_cell.set(Some(proxy));
-                    Err(e)
-                })
+                });
+                proxy_cell.set(Some(proxy));
+                res
             },
             None => Err(IdError::Missing.into()),
         }
@@ -205,6 +204,19 @@ impl EventLoop {
     }
 }
 
+impl Drop for EventLoop {
+    fn drop(&mut self) {
+        let mut res = Ok(());
+        for (id, proxy_cell) in self.proxies.iter() {
+            let mut proxy = proxy_cell.take().unwrap();
+            if let Err(e) = proxy.detach(&self.control(*id)) {
+                res = Err(e);
+            }
+        }
+        res.unwrap();
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -212,9 +224,9 @@ mod test {
     use std::thread;
     use std::sync::{Arc, Mutex};
 
-    use ::channel::{channel, Sender, SendError};
+    use ::channel::{channel, Sender, SendError, SinglePoll};
 
-    use ::test::dummy;
+    use ::test::dummy::{self, wait_msgs, wait_close};
 
 
     fn loop_wrap<F: FnOnce(Arc<Mutex<EventLoop>>, &Sender<Rx>)>(f: F) {
@@ -257,19 +269,22 @@ mod test {
     fn attach_detach() {
         loop_wrap(|el, tx| {
             let (p, mut h) = dummy::create().unwrap();
+            let mut sp = SinglePoll::new(&h.rx).unwrap();
 
             tx.send(Rx::Attach(Box::new(p))).unwrap();
-            h.process_for(Some(Duration::from_millis(10))).unwrap();
 
+            wait_msgs(&mut h, &mut sp, 1).unwrap();
             assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Attached));
             assert_matches!(h.user.msgs.pop_front(), None);
             assert_eq!(el.lock().unwrap().proxies.len(), 1);
 
-            h.close_ref().unwrap();
+            h.close().unwrap();
 
+            wait_close(&mut h, &mut sp).unwrap();
             assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Detached));
             assert_matches!(h.user.msgs.pop_front(), Some(dummy::Rx::Closed));
             assert_matches!(h.user.msgs.pop_front(), None);
+            assert_eq!(h.is_closed(), true);
             assert_eq!(el.lock().unwrap().proxies.len(), 0);
         });
     }
