@@ -1,6 +1,13 @@
 # LXI Driver
 
-[![Build Status](https://travis-ci.org/binp-automation/lxi-drv-rs.png?branch=develop)](https://travis-ci.org/binp-automation/lxi-drv-rs)
+[![Travis][travis_badge]][travis]
+[![Codecov][codecov_badge]][codecov]
+
+[travis_badge]: https://travis-ci.org/binp-automation/lxi-drv-rs.svg?branch=develop
+[codecov_badge]: https://codecov.io/gh/binp-automation/lxi-drv-rs/branch/develop/graphs/badge.svg
+
+[travis]: https://travis-ci.org/binp-automation/lxi-drv-rs
+[codecov]: https://codecov.io/gh/binp-automation/lxi-drv-rs
 
 Driver for binding LXI devices to EPICS control system
 

@@ -1,1 +1,1 @@
-initSidebarItems({"enum":[["DrvCmd",""],["DrvError",""]],"struct":[["Driver",""]]});
+initSidebarItems({"enum":[["Error",""],["Tx",""]],"struct":[["Driver",""]]});
