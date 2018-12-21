@@ -226,7 +226,7 @@ mod test {
 
     use ::channel::{channel, Sender, SendError, SinglePoll};
 
-    use ::test::dummy::{self, wait_msgs, wait_close};
+    use ::dummy::{self, wait_msgs, wait_close};
 
 
     fn loop_wrap<F: FnOnce(Arc<Mutex<EventLoop>>, &Sender<Rx>)>(f: F) {
