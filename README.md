@@ -3,18 +3,21 @@
 [![Crates.io][crates_badge]][crates]
 [![Docs.rs][docs_badge]][docs]
 [![Travis CI][travis_badge]][travis]
+[![Appveyor][appveyor_badge]][appveyor]
 [![Codecov.io][codecov_badge]][codecov]
 [![License][license_badge]][license]
 
 [crates_badge]: https://img.shields.io/crates/v/mdrv.svg
 [docs_badge]: https://docs.rs/mdrv/badge.svg
 [travis_badge]: https://api.travis-ci.org/binp-automation/mdrv.svg
+[appveyor_badge]: https://ci.appveyor.com/api/projects/status/github/binp-automation/mdrv?svg=true
 [codecov_badge]: https://codecov.io/gh/binp-automation/mdrv/graphs/badge.svg
 [license_badge]: https://img.shields.io/crates/l/mdrv.svg
 
 [crates]: https://crates.io/crates/mdrv
 [docs]: https://docs.rs/mdrv
 [travis]: https://travis-ci.org/binp-automation/mdrv
+[appveyor]: https://ci.appveyor.com/project/nthend/mdrv
 [codecov]: https://codecov.io/gh/binp-automation/mdrv
 [license]: https://github.com/binp-automation/mdrv#license
 

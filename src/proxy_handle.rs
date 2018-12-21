@@ -233,7 +233,7 @@ mod test {
 
     use std::thread;
 
-    use ::test::dummy;
+    use ::dummy;
 
     #[test]
     fn handle_close_after() {

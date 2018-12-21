@@ -518,7 +518,7 @@
 
     <span class="kw">use</span> ::<span class="ident">channel</span>::{<span class="ident">channel</span>, <span class="ident">Sender</span>, <span class="ident">SendError</span>, <span class="ident">SinglePoll</span>};
 
-    <span class="kw">use</span> ::<span class="ident">test</span>::<span class="ident">dummy</span>::{<span class="self">self</span>, <span class="ident">wait_msgs</span>, <span class="ident">wait_close</span>};
+    <span class="kw">use</span> ::<span class="ident">dummy</span>::{<span class="self">self</span>, <span class="ident">wait_msgs</span>, <span class="ident">wait_close</span>};
 
 
     <span class="kw">fn</span> <span class="ident">loop_wrap</span><span class="op">&lt;</span><span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">EventLoop</span><span class="op">&gt;&gt;</span>, <span class="kw-2">&amp;</span><span class="ident">Sender</span><span class="op">&lt;</span><span class="ident">Rx</span><span class="op">&gt;</span>)<span class="op">&gt;</span>(<span class="ident">f</span>: <span class="ident">F</span>) {

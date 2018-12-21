@@ -186,7 +186,7 @@
 
     <span class="kw">use</span> ::<span class="ident">channel</span>::{<span class="ident">SinglePoll</span>};
     <span class="kw">use</span> ::<span class="ident">proxy_handle</span>::{<span class="ident">ProxyWrapper</span>, <span class="ident">Handle</span>};
-    <span class="kw">use</span> ::<span class="ident">test</span>::<span class="ident">dummy</span>::{<span class="self">self</span>, <span class="ident">wait_msgs</span>, <span class="ident">wait_close</span>, <span class="ident">DummyProxy</span>, <span class="ident">DummyHandle</span>};
+    <span class="kw">use</span> ::<span class="ident">dummy</span>::{<span class="self">self</span>, <span class="ident">wait_msgs</span>, <span class="ident">wait_close</span>, <span class="ident">DummyProxy</span>, <span class="ident">DummyHandle</span>};
 
     <span class="kw">fn</span> <span class="ident">create_dummy</span>() <span class="op">-&gt;</span> (
         <span class="ident">ProxyWrapper</span><span class="op">&lt;</span><span class="ident">DummyProxy</span>, <span class="ident">dummy</span>::<span class="ident">Tx</span>, <span class="ident">dummy</span>::<span class="ident">Rx</span><span class="op">&gt;</span>,

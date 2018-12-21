@@ -1,6 +1,6 @@
 [package]
 name = "mdrv"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Alexey Gerasev <alexey.gerasev@gmail.com>"]
 description = "Modular driver based on Mio for managing multiple connections over different protocols"
 documentation = "https://docs.rs/mdrv"

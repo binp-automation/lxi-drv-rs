@@ -1,1 +1,1 @@
-initSidebarItems({"mod":[["channel",""],["driver",""],["error",""],["proxy",""],["proxy_handle",""],["result",""]]});
+initSidebarItems({"mod":[["channel",""],["driver",""],["dummy",""],["error",""],["proxy",""],["proxy_handle",""],["result",""]]});
