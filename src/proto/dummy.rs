@@ -1,20 +1,20 @@
 use std::collections::{VecDeque};
 
-use ::channel::{SinglePoll};
-use ::proxy::{self, Proxy, Control, Eid};
-use ::proxy_handle::{self, ProxyWrapper, Handle, UserProxy, UserHandle};
+use ::channel::{Sender, SinglePoll};
+use ::proxy::{self, Control, Eid};
+use ::wrapper::{self, UserProxy, UserHandle};
 
-pub use proxy_handle::{Tx, Rx};
+pub use wrapper::{Tx, Rx};
 
-pub struct DummyProxy {}
+pub struct Proxy {}
 
-impl DummyProxy {
+impl Proxy {
     fn new() -> Self {
         Self {}
     }
 }
 
-impl Proxy for DummyProxy {
+impl proxy::Proxy for Proxy {
     fn attach(&mut self, _ctrl: &Control) -> ::Result<()> {
         Ok(())
     }
@@ -28,17 +28,18 @@ impl Proxy for DummyProxy {
     }
 }
 
-impl UserProxy<Tx, Rx> for DummyProxy {
-    fn process_channel(&mut self, _ctrl: &mut Control, _msg: Tx) -> ::Result<()> {
+impl UserProxy<Tx, Rx> for Proxy {
+    fn set_send_channel(&mut self, _tx: Sender<Rx>) {}
+    fn process_recv_channel(&mut self, _ctrl: &mut Control, _msg: Tx) -> ::Result<()> {
         Ok(())
     }
 }
 
-pub struct DummyHandle {
+pub struct Handle {
     pub msgs: VecDeque<Rx>,
 }
 
-impl DummyHandle {
+impl Handle {
     fn new() -> Self {
         Self {
             msgs: VecDeque::new(),
@@ -46,18 +47,19 @@ impl DummyHandle {
     }
 }
 
-impl UserHandle<Tx, Rx> for DummyHandle {
-    fn process_channel(&mut self, msg: Rx) -> ::Result<()> {
+impl UserHandle<Tx, Rx> for Handle {
+    fn set_send_channel(&mut self, _tx: Sender<Tx>) {}
+    fn process_recv_channel(&mut self, msg: Rx) -> ::Result<()> {
         self.msgs.push_back(msg);
         Ok(())
     }
 }
 
-pub fn create() -> ::Result<(ProxyWrapper<DummyProxy, Tx, Rx>, Handle<DummyHandle, Tx, Rx>)> {
-    proxy_handle::create(DummyProxy::new(), DummyHandle::new())
+pub fn create() -> ::Result<(wrapper::Proxy<Proxy, Tx, Rx>, wrapper::Handle<Handle, Tx, Rx>)> {
+    wrapper::create(Proxy::new(), Handle::new())
 }
 
-pub fn wait_msgs(h: &mut Handle<DummyHandle, Tx, Rx>, sp: &mut SinglePoll, n: usize) -> ::Result<()> {
+pub fn wait_msgs(h: &mut wrapper::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll, n: usize) -> ::Result<()> {
     let ns = h.user.msgs.len();
     loop {
         if let Err(e) = sp.wait(None) {
@@ -72,7 +74,7 @@ pub fn wait_msgs(h: &mut Handle<DummyHandle, Tx, Rx>, sp: &mut SinglePoll, n: us
     }
 }
 
-pub fn wait_close(h: &mut Handle<DummyHandle, Tx, Rx>, sp: &mut SinglePoll) -> ::Result<()> {
+pub fn wait_close(h: &mut wrapper::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll) -> ::Result<()> {
     loop {
         if let Err(e) = sp.wait(None) {
             break Err(::Error::Channel(e.into()));

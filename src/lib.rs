@@ -1,17 +1,17 @@
-//! [`Mdrv`] is a modular driver based on [`Mio`] for managing multiple connections over different protocols
+//! **`Mdrv`** is a modular driver based on [`Mio`] for managing multiple connections over different protocols
 //!
 //! # Overview
 //! 
-//! The core of the [`Mdrv`] funtionality is the [`Driver`] structure.
+//! The core of the **`Mdrv`** funtionality is the [`Driver`] structure.
 //! In maintains an event loop which manages entities called proxies.
 //! 
 //! [`Proxy`] instances are passed to the driver to be inserted in event loop.
 //! They can maintain different connections and reads and writes data over them.
 //! 
 //! Because of the proxy is moved to the driver we cannot directly access it.
-//! The [`Handle`] is the way to communicate with the proxy by sending commands and receiving responces.
+//! The [`wrapper::Handle`] is the way to communicate with the proxy by sending commands and receiving responces.
 //! 
-//! The pair of [`Handle`] and [`ProxyWrapper`] (the [`Proxy`] instance, that implements communication with the handle)
+//! The pair of [`wrapper::Handle`] and [`wrapper::Proxy`] (the [`Proxy`] instance, that implements communication with the handle)
 //! is usually constructed by [`create()`] function. 
 //! This function takes user-defined structs that should implement [`UserProxy`] and [`UserHandle`] traits.
 //! Also a command set should be defined for communication between proxy and handle.
@@ -23,7 +23,7 @@
 //! # Simple example
 //!
 //! ```rust
-//! use mdrv::{channel, driver, dummy};
+//! use mdrv::{channel, driver, proto::dummy};
 //! 
 //! // create driver instance
 //! let mut driver = driver::Driver::new().unwrap();
@@ -62,24 +62,23 @@
 //! }
 //! ```
 //!
-//! [`Mdrv`]: https://github.com/binp-automation/mdrv
-//! [`Mio`]: https://github.com/carllerche/mio
+//! [`Mio`]: https://docs.rs/mio/
 //!
 //! [`Driver`]: driver/struct.Driver.html
 //! [`Proxy`]: proxy/trait.Proxy.html
-//! [`Handle`]: proxy_handle/struct.Handle.html
-//! [`ProxyWrapper`]: proxy_handle/struct.ProxyWrapper.html
-//! [`create()`]: proxy_handle/fn.create.html
+//! [`wrapper::Handle`]: wrapper/struct.Handle.html
+//! [`wrapper::Proxy`]: wrapper/struct.Proxy.html
+//! [`create()`]: wrapper/fn.create.html
 //! 
-//! [`UserProxy`]: proxy_handle/trait.UserProxy.html
-//! [`UserHandle`]: proxy_handle/trait.UserHandle.html
-//! [`Tx`]: proxy_handle/enum.Tx.html
-//! [`Rx`]: proxy_handle/enum.Rx.html
+//! [`UserProxy`]: wrapper/trait.UserProxy.html
+//! [`UserHandle`]: wrapper/trait.UserHandle.html
+//! [`Tx`]: wrapper/enum.Tx.html
+//! [`Rx`]: wrapper/enum.Rx.html
 //! 
 //! [`From`]: https://doc.rust-lang.org/nightly/core/convert/trait.From.html
 //! [`Into`]: https://doc.rust-lang.org/nightly/core/convert/trait.Into.html
 //! 
-//! [`dummy`]: dummy/index.html
+//! [`dummy`]: proto/dummy/index.html
 //! 
 
 extern crate mio;
@@ -90,11 +89,12 @@ pub mod result;
 
 pub mod channel;
 pub mod proxy;
-pub mod proxy_handle;
-pub mod dummy;
+pub mod wrapper;
 
 mod event_loop;
 pub mod driver;
+
+pub mod proto;
 
 pub use error::{Error};
 pub use result::{Result};

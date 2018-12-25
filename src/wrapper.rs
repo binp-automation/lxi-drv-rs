@@ -1,7 +1,7 @@
 use mio;
 
 use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
-use ::proxy::{self, Proxy, Control, Eid};
+use ::proxy::{self, Control, Eid};
 
 
 #[derive(Debug)]
@@ -35,23 +35,25 @@ impl TxExt for Tx {}
 impl RxExt for Rx {}
 
 
-pub trait UserProxy<T: TxExt, R: RxExt>: Proxy {
-    fn process_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
+pub trait UserProxy<T: TxExt, R: RxExt>: proxy::Proxy {
+    fn set_send_channel(&mut self, tx: Sender<R>);
+    fn process_recv_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
 }
 
-pub struct ProxyWrapper<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
+pub struct Proxy<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
     pub user: P,
     pub tx: Sender<R>,
     pub rx: Receiver<T>,
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> ProxyWrapper<P, T, R> {
-    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> ProxyWrapper<P, T, R> {
-        ProxyWrapper { user, tx, rx }
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy<P, T, R> {
+    fn new(mut user: P, tx: Sender<R>, rx: Receiver<T>) -> Self {
+        user.set_send_channel(tx.clone());
+        Self { user, tx, rx }
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
     fn attach(&mut self, ctrl: &Control) -> ::Result<()> {
         ctrl.register(&self.rx, 0, mio::Ready::readable(), mio::PollOpt::edge())
         .and_then(|_| {
@@ -102,7 +104,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
                                 },
                                 Err(umsg) => umsg,
                             };
-                            match self.user.process_channel(ctrl, umsg) {
+                            match self.user.process_recv_channel(ctrl, umsg) {
                                 Ok(()) => (),
                                 Err(e) => break Err(e),
                             }
@@ -119,7 +121,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy for ProxyWrapper<P, T, R> {
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ProxyWrapper<P, T, R> {
+impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for Proxy<P, T, R> {
     fn drop(&mut self) {
         match self.tx.send(Rx::Closed.into()) {
             Ok(()) => (),
@@ -133,7 +135,8 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for ProxyWrapper<P, T, R> {
 
 
 pub trait UserHandle<T: TxExt, R: RxExt> {
-    fn process_channel(&mut self, msg: R) -> ::Result<()>;
+    fn set_send_channel(&mut self, tx: Sender<T>);
+    fn process_recv_channel(&mut self, msg: R) -> ::Result<()>;
 }
 
 pub struct Handle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
@@ -144,8 +147,9 @@ pub struct Handle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
 }
 
 impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
-    fn new(user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
-        Handle { user, tx, rx, closed: false }
+    fn new(mut user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
+        user.set_send_channel(tx.clone());
+        Self { user, tx, rx, closed: false }
     }
 
     fn is_exit(msg: R) -> (R, bool) {
@@ -170,7 +174,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
             match self.rx.try_recv() {
                 Ok(msg) => {
                     let (msg, exit) = Self::is_exit(msg);
-                    match self.user.process_channel(msg) {
+                    match self.user.process_recv_channel(msg) {
                         Ok(()) => {
                             if exit {
                                 self.closed = true;
@@ -215,11 +219,11 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
     }
 }
 
-pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(ProxyWrapper<P, T, R>, Handle<H, T, R>)>
+pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
 where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
-    let proxy = ProxyWrapper::new(user_proxy, ptx, prx);
+    let proxy = Proxy::new(user_proxy, ptx, prx);
     let handle = Handle::new(user_handle, htx, hrx);
     Ok((proxy, handle))
 }
@@ -233,7 +237,7 @@ mod test {
 
     use std::thread;
 
-    use ::dummy;
+    use ::proto::dummy;
 
     #[test]
     fn handle_close_after() {

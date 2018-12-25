@@ -55,12 +55,12 @@ mod test {
     use super::*;
 
     use ::channel::{SinglePoll};
-    use ::proxy_handle::{ProxyWrapper, Handle};
-    use ::dummy::{self, wait_msgs, wait_close, DummyProxy, DummyHandle};
+    use ::wrapper::{self};
+    use ::proto::dummy::{self, wait_msgs, wait_close};
 
     fn create_dummy() -> (
-        ProxyWrapper<DummyProxy, dummy::Tx, dummy::Rx>,
-        Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        wrapper::Proxy<dummy::Proxy, dummy::Tx, dummy::Rx>,
+        wrapper::Handle<dummy::Handle, dummy::Tx, dummy::Rx>,
         SinglePoll,
     ) {
         let (p, h) = dummy::create().unwrap();
@@ -69,7 +69,7 @@ mod test {
     }
 
     fn test_attach(
-        h: &mut Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        h: &mut wrapper::Handle<dummy::Handle, dummy::Tx, dummy::Rx>,
         sp: &mut SinglePoll,
     ) {
         wait_msgs(h, sp, 1).unwrap();
@@ -78,7 +78,7 @@ mod test {
     }
 
     fn test_detach(
-        h: &mut Handle<DummyHandle, dummy::Tx, dummy::Rx>,
+        h: &mut wrapper::Handle<dummy::Handle, dummy::Tx, dummy::Rx>,
         sp: &mut SinglePoll,
     ) {
         wait_close(h, sp).unwrap();
