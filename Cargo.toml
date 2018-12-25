@@ -17,3 +17,4 @@ mio-extras = "2.0"
 
 [dev-dependencies]
 matches = "0.1"
+rand = "0.6"

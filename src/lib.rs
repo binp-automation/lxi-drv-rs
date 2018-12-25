@@ -103,3 +103,5 @@ pub use result::{Result};
 #[cfg(test)]
 #[macro_use]
 extern crate matches;
+#[cfg(test)]
+extern crate rand;
