@@ -1,8 +1,8 @@
-//! **`Mdrv`** is a modular driver based on [`Mio`] for managing multiple connections over different protocols
+//! `Mdrv` is a modular driver based on [`Mio`] for managing multiple connections over different protocols
 //!
 //! # Overview
 //! 
-//! The core of the **`Mdrv`** funtionality is the [`Driver`] structure.
+//! The core of the `Mdrv` funtionality is the [`Driver`] structure.
 //! In maintains an event loop which manages entities called proxies.
 //! 
 //! [`Proxy`] instances are passed to the driver to be inserted in event loop.
@@ -83,6 +83,7 @@
 
 extern crate mio;
 extern crate mio_extras;
+
 
 pub mod error;
 pub mod result;
