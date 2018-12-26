@@ -10,7 +10,7 @@
 [crates_badge]: https://img.shields.io/crates/v/mdrv.svg
 [docs_badge]: https://docs.rs/mdrv/badge.svg
 [travis_badge]: https://api.travis-ci.org/binp-automation/mdrv.svg
-[appveyor_badge]: https://ci.appveyor.com/api/projects/status/github/binp-automation/mdrv?svg=true
+[appveyor_badge]: https://ci.appveyor.com/api/projects/status/github/binp-automation/mdrv?branch=develop&svg=true
 [codecov_badge]: https://codecov.io/gh/binp-automation/mdrv/graphs/badge.svg
 [license_badge]: https://img.shields.io/crates/l/mdrv.svg
 
@@ -19,7 +19,7 @@
 [travis]: https://travis-ci.org/binp-automation/mdrv
 [appveyor]: https://ci.appveyor.com/project/nthend/mdrv
 [codecov]: https://codecov.io/gh/binp-automation/mdrv
-[license]: https://github.com/binp-automation/mdrv#license
+[license]: #license
 
 Modular driver based on [Mio](https://github.com/carllerche/mio) for managing multiple connections over different protocols
 

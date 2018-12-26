@@ -1,3 +1,12 @@
+//! TCP proxy and handle implementation
+//!
+//! ## Tips
+//!
+//! + One `Evented` should be used only in one poll, it won't work in another poll after that
+//! + Mio sockets works properly on windows only when polling, they cannot send and receive data otherwise
+//! + Sometimes poll can return empty events without waiting for timeout
+//!
+
 use std::io;
 use std::net::{SocketAddr, IpAddr, Shutdown};
 use std::time::{Duration};
@@ -392,47 +401,6 @@ mod test {
     }
 
     #[test]
-    fn sock_data() {
-        let lis = listen_free(LOCALHOST, 8000..9000).unwrap();
-        let port = lis.local_addr().unwrap().port();
-        
-        let thr = thread::spawn(move || {
-            let mut stream = lis.incoming().next().unwrap().unwrap();
-            
-            let mut buf = vec!(0; 4);
-            stream.read_exact(&mut buf).unwrap();
-            assert_eq!(&buf, b"Send");
-
-            assert_eq!(stream.write(b"Recv").unwrap(), 4);
-        });
-
-        let mut sock = MioTcpStream::connect(&(LOCALHOST, port).into()).unwrap();
-
-        assert_eq!(sock.write(b"Send").unwrap(), 4);
-
-        let mut buf = vec!(0; 4);
-        let mut got = false;
-        for _ in 0..100 {
-            match sock.read_exact(&mut buf) {
-                Err(err) => {
-                    assert_eq!(err.kind(), io::ErrorKind::WouldBlock);
-                },
-                Ok(()) => {
-                    assert_eq!(&buf, b"Recv");
-                    got = true;
-                    break;
-                },
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        if !got {
-            panic!();
-        }
-
-        thr.join().unwrap();
-    }
-    
-    #[test]
     fn sock_poll() {
         let lis = listen_free(LOCALHOST, 8000..9000).unwrap();
         let port = lis.local_addr().unwrap().port();
@@ -527,15 +495,22 @@ mod test {
         });
 
         let poll = Poll::new().unwrap();
-        let mut evts = Events::with_capacity(16);
+        let mut evts = Events::with_capacity(1);
         let mut c = Control::new(0, &poll);
         let mut p = ProxySock::new(SocketAddr::new(LOCALHOST, port));
         p.connect(&mut c).unwrap();
 
-        poll.poll(&mut evts, Some(Duration::from_secs(10))).unwrap();
-        let evt = evts.iter().next().unwrap();
-        assert_eq!(evt.token().0, 1);
-        assert!(evt.readiness().is_readable());
+        loop {
+            poll.poll(&mut evts, Some(Duration::from_secs(10))).unwrap();
+            match evts.iter().next() {
+                Some(evt) => {
+                    assert_eq!(evt.token().0, 1);
+                    assert!(evt.readiness().is_readable());
+                    break;
+                },
+                None => continue,
+            }
+        }
 
         p.disconnect(&c).unwrap();
         thr.join().unwrap();
