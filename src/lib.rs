@@ -13,17 +13,16 @@
 //! 
 //! The pair of [`wrapper::Handle`] and [`wrapper::Proxy`] (the [`Proxy`] instance, that implements communication with the handle)
 //! is usually constructed by [`create()`] function. 
-//! This function takes user-defined structs that should implement [`UserProxy`] and [`UserHandle`] traits.
+//! This function takes user-defined structs that should implement [`user::Proxy`] and [`user::Handle`] traits.
 //! Also a command set should be defined for communication between proxy and handle.
-//! These commands have to be able to convert from and into the basic [`Tx`] and [`Rx`] commands
-//! by implementing [`From`] and [`Into`] traits.
+//! These commands have to implement [`Tx`] and [`Rx`] traits.
 //! 
 //! The example dummy implementation of user structures could be found in [`dummy`] module.
 //! 
 //! # Simple example
 //!
 //! ```rust
-//! use mdrv::{channel, driver, proto::dummy};
+//! use mdrv::{channel, driver, dummy};
 //! 
 //! // create driver instance
 //! let mut driver = driver::Driver::new().unwrap();
@@ -70,15 +69,12 @@
 //! [`wrapper::Proxy`]: wrapper/struct.Proxy.html
 //! [`create()`]: wrapper/fn.create.html
 //! 
-//! [`UserProxy`]: wrapper/trait.UserProxy.html
-//! [`UserHandle`]: wrapper/trait.UserHandle.html
-//! [`Tx`]: wrapper/enum.Tx.html
-//! [`Rx`]: wrapper/enum.Rx.html
+//! [`user::Proxy`]: user/trait.Proxy.html
+//! [`user::Handle`]: user/trait.Handle.html
+//! [`Tx`]: user/trait.Tx.html
+//! [`Rx`]: user/trait.Rx.html
 //! 
-//! [`From`]: https://doc.rust-lang.org/nightly/core/convert/trait.From.html
-//! [`Into`]: https://doc.rust-lang.org/nightly/core/convert/trait.Into.html
-//! 
-//! [`dummy`]: proto/dummy/index.html
+//! [`dummy`]: dummy/index.html
 //! 
 
 extern crate mio;
@@ -91,11 +87,14 @@ pub mod result;
 pub mod channel;
 pub mod proxy;
 pub mod wrapper;
+pub mod user;
 
 mod event_loop;
 pub mod driver;
 
-pub mod proto;
+pub mod dummy;
+
+pub mod net;
 
 pub use error::{Error};
 pub use result::{Result};

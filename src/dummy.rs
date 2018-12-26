@@ -2,9 +2,10 @@ use std::collections::{VecDeque};
 
 use ::channel::{Sender, SinglePoll};
 use ::proxy::{self, Control, Eid};
-use ::wrapper::{self, UserProxy, UserHandle};
+use ::wrapper::{self as w};
+use ::user::{self as u};
 
-pub use wrapper::{Tx, Rx};
+pub use self::w::{Tx, Rx};
 
 pub struct Proxy {}
 
@@ -28,7 +29,7 @@ impl proxy::Proxy for Proxy {
     }
 }
 
-impl UserProxy<Tx, Rx> for Proxy {
+impl u::Proxy<Tx, Rx> for Proxy {
     fn set_send_channel(&mut self, _tx: Sender<Rx>) {}
     fn process_recv_channel(&mut self, _ctrl: &mut Control, _msg: Tx) -> ::Result<()> {
         Ok(())
@@ -47,7 +48,7 @@ impl Handle {
     }
 }
 
-impl UserHandle<Tx, Rx> for Handle {
+impl u::Handle<Tx, Rx> for Handle {
     fn set_send_channel(&mut self, _tx: Sender<Tx>) {}
     fn process_recv_channel(&mut self, msg: Rx) -> ::Result<()> {
         self.msgs.push_back(msg);
@@ -55,11 +56,11 @@ impl UserHandle<Tx, Rx> for Handle {
     }
 }
 
-pub fn create() -> ::Result<(wrapper::Proxy<Proxy, Tx, Rx>, wrapper::Handle<Handle, Tx, Rx>)> {
-    wrapper::create(Proxy::new(), Handle::new())
+pub fn create() -> ::Result<(w::Proxy<Proxy, Tx, Rx>, w::Handle<Handle, Tx, Rx>)> {
+    w::create(Proxy::new(), Handle::new())
 }
 
-pub fn wait_msgs(h: &mut wrapper::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll, n: usize) -> ::Result<()> {
+pub fn wait_msgs(h: &mut w::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll, n: usize) -> ::Result<()> {
     let ns = h.user.msgs.len();
     loop {
         if let Err(e) = sp.wait(None) {
@@ -74,7 +75,7 @@ pub fn wait_msgs(h: &mut wrapper::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll, n
     }
 }
 
-pub fn wait_close(h: &mut wrapper::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll) -> ::Result<()> {
+pub fn wait_close(h: &mut w::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll) -> ::Result<()> {
     loop {
         if let Err(e) = sp.wait(None) {
             break Err(::Error::Channel(e.into()));

@@ -2,6 +2,7 @@ use mio;
 
 use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
 use ::proxy::{self, Control, Eid};
+use ::user::{self};
 
 
 #[derive(Debug)]
@@ -16,9 +17,6 @@ pub enum Rx {
     Closed,
 }
 
-pub trait TxExt: From<Tx> + Into<Result<Tx, Self>> {}
-pub trait RxExt: From<Rx> + Into<Result<Rx, Self>> {}
-
 impl Into<Result<Tx, Self>> for Tx {
     fn into(self) -> Result<Tx, Self> {
         Ok(self)
@@ -31,29 +29,24 @@ impl Into<Result<Rx, Self>> for Rx {
     }
 }
 
-impl TxExt for Tx {}
-impl RxExt for Rx {}
+impl user::Tx for Tx {}
+impl user::Rx for Rx {}
 
 
-pub trait UserProxy<T: TxExt, R: RxExt>: proxy::Proxy {
-    fn set_send_channel(&mut self, tx: Sender<R>);
-    fn process_recv_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
-}
-
-pub struct Proxy<P: UserProxy<T, R>, T: TxExt, R: RxExt> {
+pub struct Proxy<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> {
     pub user: P,
     pub tx: Sender<R>,
     pub rx: Receiver<T>,
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Proxy<P, T, R> {
+impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> Proxy<P, T, R> {
     fn new(mut user: P, tx: Sender<R>, rx: Receiver<T>) -> Self {
         user.set_send_channel(tx.clone());
         Self { user, tx, rx }
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
+impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> proxy::Proxy for Proxy<P, T, R> {
     fn attach(&mut self, ctrl: &Control) -> ::Result<()> {
         ctrl.register(&self.rx, 0, mio::Ready::readable(), mio::PollOpt::edge())
         .and_then(|_| {
@@ -121,7 +114,7 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> proxy::Proxy for Proxy<P, T, R> {
     }
 }
 
-impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for Proxy<P, T, R> {
+impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> Drop for Proxy<P, T, R> {
     fn drop(&mut self) {
         match self.tx.send(Rx::Closed.into()) {
             Ok(()) => (),
@@ -134,19 +127,14 @@ impl<P: UserProxy<T, R>, T: TxExt, R: RxExt> Drop for Proxy<P, T, R> {
 }
 
 
-pub trait UserHandle<T: TxExt, R: RxExt> {
-    fn set_send_channel(&mut self, tx: Sender<T>);
-    fn process_recv_channel(&mut self, msg: R) -> ::Result<()>;
-}
-
-pub struct Handle<H: UserHandle<T, R>, T: TxExt, R: RxExt> {
+pub struct Handle<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> {
     pub user: H,
     pub tx: Sender<T>,
     pub rx: Receiver<R>,
     closed: bool,
 }
 
-impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
+impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
     fn new(mut user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
         user.set_send_channel(tx.clone());
         Self { user, tx, rx, closed: false }
@@ -206,7 +194,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Handle<H, T, R> {
     }
 }
 
-impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
+impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Drop for Handle<H, T, R> {
     fn drop(&mut self) {
         match self.close() {
             Ok(_) => (),
@@ -220,7 +208,7 @@ impl<H: UserHandle<T, R>, T: TxExt, R: RxExt> Drop for Handle<H, T, R> {
 }
 
 pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
-where P: UserProxy<T, R>, H: UserHandle<T, R>, T: TxExt, R: RxExt {
+where P: user::Proxy<T, R>, H: user::Handle<T, R>, T: user::Tx, R: user::Rx {
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
     let proxy = Proxy::new(user_proxy, ptx, prx);
@@ -237,7 +225,7 @@ mod test {
 
     use std::thread;
 
-    use ::proto::dummy;
+    use ::dummy;
 
     #[test]
     fn handle_close_after() {

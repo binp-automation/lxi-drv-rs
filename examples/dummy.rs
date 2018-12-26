@@ -1,6 +1,6 @@
 extern crate mdrv;
 
-use mdrv::{channel, driver, proto::dummy};
+use mdrv::{channel, driver, dummy};
 
 
 fn main() {

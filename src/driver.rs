@@ -56,7 +56,7 @@ mod test {
 
     use ::channel::{SinglePoll};
     use ::wrapper::{self};
-    use ::proto::dummy::{self, wait_msgs, wait_close};
+    use ::dummy::{self, wait_msgs, wait_close};
 
     fn create_dummy() -> (
         wrapper::Proxy<dummy::Proxy, dummy::Tx, dummy::Rx>,

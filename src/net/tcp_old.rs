@@ -1,4 +1,4 @@
-//! TCP proxy and handle implementation
+//! TCP Layer
 //!
 //! ## Tips
 //!
@@ -7,11 +7,10 @@
 //! + Sometimes poll can return empty events without waiting for timeout
 //!
 
-use std::io;
+
 use std::net::{SocketAddr, IpAddr, Shutdown};
 use std::time::{Duration};
-use std::error::{Error as StdError};
-use std::fmt;
+
 
 use ::channel::{Sender};
 use ::proxy::{self, Control, Eid};
@@ -19,45 +18,6 @@ use ::wrapper::{self as w, UserProxy, UserHandle};
 
 use mio::{self, Ready, PollOpt, net::{TcpStream as MioTcpStream}};
 
-
-#[derive(Debug)]
-pub enum Error {
-    Io(io::Error),
-    NotEmpty,
-    Empty,
-}
-
-impl StdError for Error {
-    fn description(&self) -> &str {
-        match self {
-            Error::Io(e) => e.description(),
-            Error::Empty => "Empty",
-            Error::NotEmpty => "Not empty",
-        }
-    }
-
-    fn cause(&self) -> Option<&StdError> {
-        match self {
-            Error::Io(e) => Some(e),
-            Error::Empty => None,
-            Error::NotEmpty => None,
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", (self as &StdError).description())
-    }
-}
-
-
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Addr {
-    Dns(String, u16),
-    Ip(IpAddr, u16),
-}
 
 pub enum Tx {
     Connect(Addr),
