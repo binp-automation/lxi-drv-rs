@@ -19,62 +19,20 @@
 //! 
 //! The example dummy implementation of user structures could be found in [`dummy`] module.
 //! 
-//! # Simple example
-//!
-//! ```rust
-//! use mdrv::{channel, driver, dummy};
-//! 
-//! // create driver instance
-//! let mut driver = driver::Driver::new().unwrap();
-//! // create dummy proxy and handle pair
-//! let (proxy, mut handle) = dummy::create().unwrap();
-//!
-//! // We need a simple poll to wait for messages on handle
-//! // A regular mio::Poll also can be used for that
-//! let mut poll = channel::SinglePoll::new(&handle.rx).unwrap();
-//! 
-//! driver.attach(Box::new(proxy)).unwrap();
-//!
-//! // wait for one message from proxy to arrive
-//! dummy::wait_msgs(&mut handle, &mut poll, 1).unwrap();
-//! 
-//! // read message received
-//! match handle.user.msgs.pop_front().unwrap() {
-//!     dummy::Rx::Attached => println!("attached to the driver"),
-//!     other => panic!("{:?}", other),
-//! }
-//!
-//! // now we don't need our proxy anymore
-//! handle.close().unwrap(); // this also called on handle drop
-//! 
-//! // wait for proxy to be closed
-//! dummy::wait_close(&mut handle, &mut poll).unwrap();
-//! 
-//! // read messages again
-//! match handle.user.msgs.pop_front().unwrap() {
-//!     dummy::Rx::Detached => println!("detached from the driver"),
-//!     other => panic!("{:?}", other),
-//! }
-//! match handle.user.msgs.pop_front().unwrap() {
-//!     dummy::Rx::Closed => println!("proxy has been dropped"),
-//!     other => panic!("{:?}", other),
-//! }
-//! ```
-//!
 //! [`Mio`]: https://docs.rs/mio/
 //!
 //! [`Driver`]: driver/struct.Driver.html
 //! [`Proxy`]: proxy/trait.Proxy.html
-//! [`wrapper::Handle`]: wrapper/struct.Handle.html
-//! [`wrapper::Proxy`]: wrapper/struct.Proxy.html
-//! [`create()`]: wrapper/fn.create.html
+//! [`wrapper::Handle`]: proxy/wrapper/struct.Handle.html
+//! [`wrapper::Proxy`]: proxy/wrapper/struct.Proxy.html
+//! [`create()`]: proxy/wrapper/fn.create.html
 //! 
-//! [`user::Proxy`]: user/trait.Proxy.html
-//! [`user::Handle`]: user/trait.Handle.html
-//! [`Tx`]: user/trait.Tx.html
-//! [`Rx`]: user/trait.Rx.html
+//! [`user::Proxy`]: proxy/user/trait.Proxy.html
+//! [`user::Handle`]: proxy/user/trait.Handle.html
+//! [`Tx`]: proxy/user/trait.Tx.html
+//! [`Rx`]: proxy/user/trait.Rx.html
 //! 
-//! [`dummy`]: dummy/index.html
+//! [`dummy`]: proxy/dummy/index.html
 //! 
 
 extern crate mio;
@@ -83,18 +41,11 @@ extern crate mio_extras;
 
 pub mod error;
 pub mod result;
-
 pub mod channel;
+
 pub mod proxy;
-pub mod wrapper;
-pub mod user;
-
-mod event_loop;
-pub mod driver;
-
-pub mod dummy;
-
-pub mod net;
+//pub mod driver;
+//pub mod net;
 
 pub use error::{Error};
 pub use result::{Result};

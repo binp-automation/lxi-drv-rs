@@ -1,9 +1,11 @@
 use std::collections::{VecDeque};
 
 use ::channel::{Sender, SinglePoll};
-use ::proxy::{self, Control, Eid};
-use ::wrapper::{self as w};
-use ::user::{self as u};
+
+use super::control::{Control, BaseControl, EventControl};
+use super::proxy::{self as p};
+use super::wrapper::{self as w};
+use super::user::{self as u};
 
 pub use self::w::{Tx, Rx};
 
@@ -15,16 +17,16 @@ impl Proxy {
     }
 }
 
-impl proxy::Proxy for Proxy {
-    fn attach(&mut self, _ctrl: &Control) -> ::Result<()> {
+impl p::Proxy for Proxy {
+    fn attach(&mut self, _ctrl: &mut BaseControl) -> ::Result<()> {
         Ok(())
     }
 
-    fn detach(&mut self, _ctrl: &Control) -> ::Result<()> {
+    fn detach(&mut self, _ctrl: &mut BaseControl) -> ::Result<()> {
         Ok(())
     }
 
-    fn process(&mut self, _ctrl: &mut Control, _readiness: mio::Ready, _eid: Eid) -> ::Result<()> {
+    fn process(&mut self, _ctrl: &mut EventControl) -> ::Result<()> {
         Ok(())
     }
 }
@@ -83,7 +85,7 @@ pub fn wait_close(h: &mut w::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll) -> ::R
         match h.process() {
             Ok(()) => continue,
             Err(err) => match err {
-                ::Error::Proxy(proxy::Error::Closed) => break Ok(()),
+                ::Error::Proxy(p::Error::Closed) => break Ok(()),
                 other => break Err(other),
             }
         }

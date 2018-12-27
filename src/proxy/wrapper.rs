@@ -1,9 +1,13 @@
 use mio;
 
 use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
-use ::proxy::{self, Control, Eid};
-use ::user::{self};
 
+use super::control::{Control, BaseControl, EventControl, EventedWrapper, Eid};
+use super::proxy::{self as p};
+use super::user::{self as u};
+
+
+const EID_CHAN_RX: Eid = 0;
 
 #[derive(Debug)]
 pub enum Tx {
@@ -29,26 +33,29 @@ impl Into<Result<Rx, Self>> for Rx {
     }
 }
 
-impl user::Tx for Tx {}
-impl user::Rx for Rx {}
+impl u::Tx for Tx {}
+impl u::Rx for Rx {}
 
 
-pub struct Proxy<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> {
+pub struct Proxy<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> {
     pub user: P,
     pub tx: Sender<R>,
-    pub rx: Receiver<T>,
+    pub rx: EventedWrapper<Receiver<T>>,
 }
 
-impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> Proxy<P, T, R> {
+impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Proxy<P, T, R> {
     fn new(mut user: P, tx: Sender<R>, rx: Receiver<T>) -> Self {
         user.set_send_channel(tx.clone());
-        Self { user, tx, rx }
+        Self {
+            user, tx,
+            rx: EventedWrapper::new(rx, EID_CHAN_RX),
+        }
     }
 }
 
-impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> proxy::Proxy for Proxy<P, T, R> {
-    fn attach(&mut self, ctrl: &Control) -> ::Result<()> {
-        ctrl.register(&self.rx, 0, mio::Ready::readable(), mio::PollOpt::edge())
+impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
+    fn attach(&mut self, ctrl: &mut BaseControl) -> ::Result<()> {
+        ctrl.register(&self.rx, mio::Ready::readable())
         .and_then(|_| {
             self.user.attach(ctrl)
             .and_then(|_| {
@@ -67,7 +74,7 @@ impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> proxy::Proxy for Proxy<P, T
             })
         })
     }
-    fn detach(&mut self, ctrl: &Control) -> ::Result<()> {
+    fn detach(&mut self, ctrl: &mut BaseControl) -> ::Result<()> {
         self.user.detach(ctrl)
         .and_then(|_| { ctrl.deregister(&self.rx) })
         .and_then(|_| {
@@ -81,10 +88,10 @@ impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> proxy::Proxy for Proxy<P, T
         })
     }
 
-    fn process(&mut self, ctrl: &mut Control, readiness: mio::Ready, eid: Eid) -> ::Result<()> {
-        match eid {
-            0 => {
-                assert!(readiness.is_readable());
+    fn process(&mut self, ctrl: &mut EventControl) -> ::Result<()> {
+        match ctrl.id() {
+            EID_CHAN_RX => {
+                assert!(ctrl.readiness().is_readable());
                 loop {
                     match self.rx.try_recv() {
                         Ok(msg) => {
@@ -109,12 +116,12 @@ impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> proxy::Proxy for Proxy<P, T
                     }
                 }
             },
-            other_eid => self.user.process(ctrl, readiness, other_eid),
+            _ => self.user.process(ctrl),
         }
     }
 }
 
-impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> Drop for Proxy<P, T, R> {
+impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Drop for Proxy<P, T, R> {
     fn drop(&mut self) {
         match self.tx.send(Rx::Closed.into()) {
             Ok(()) => (),
@@ -127,14 +134,14 @@ impl<P: user::Proxy<T, R>, T: user::Tx, R: user::Rx> Drop for Proxy<P, T, R> {
 }
 
 
-pub struct Handle<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> {
+pub struct Handle<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> {
     pub user: H,
     pub tx: Sender<T>,
     pub rx: Receiver<R>,
     closed: bool,
 }
 
-impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
+impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Handle<H, T, R> {
     fn new(mut user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
         user.set_send_channel(tx.clone());
         Self { user, tx, rx, closed: false }
@@ -155,7 +162,7 @@ impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
 
     pub fn process(&mut self) -> ::Result<()> {
         if self.closed {
-            return Err(proxy::Error::Closed.into());
+            return Err(p::Error::Closed.into());
         }
 
         loop {
@@ -166,7 +173,7 @@ impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
                         Ok(()) => {
                             if exit {
                                 self.closed = true;
-                                break Err(proxy::Error::Closed.into());
+                                break Err(p::Error::Closed.into());
                             } else {
                                 continue;
                             }
@@ -184,7 +191,7 @@ impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
 
     pub fn close(&mut self) -> ::Result<()> {
         if self.closed {
-            return Err(proxy::Error::Closed.into());
+            return Err(p::Error::Closed.into());
         }
         self.tx.send(Tx::Close.into()).map_err(|e| ::Error::Channel(e.into()))
     }
@@ -194,12 +201,12 @@ impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Handle<H, T, R> {
     }
 }
 
-impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Drop for Handle<H, T, R> {
+impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Drop for Handle<H, T, R> {
     fn drop(&mut self) {
         match self.close() {
             Ok(_) => (),
             Err(err) => match err {
-                ::Error::Proxy(proxy::Error::Closed) => (),
+                ::Error::Proxy(p::Error::Closed) => (),
                 ::Error::Channel(channel::Error::Disconnected) => (),
                 other => panic!("{:?}", other),
             },
@@ -208,7 +215,7 @@ impl<H: user::Handle<T, R>, T: user::Tx, R: user::Rx> Drop for Handle<H, T, R> {
 }
 
 pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
-where P: user::Proxy<T, R>, H: user::Handle<T, R>, T: user::Tx, R: user::Rx {
+where P: u::Proxy<T, R>, H: u::Handle<T, R>, T: u::Tx, R: u::Rx {
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
     let proxy = Proxy::new(user_proxy, ptx, prx);
@@ -225,7 +232,7 @@ mod test {
 
     use std::thread;
 
-    use ::dummy;
+    use super::super::dummy;
 
     #[test]
     fn handle_close_after() {
@@ -235,7 +242,7 @@ mod test {
 
         assert_eq!(h.is_closed(), false);
 
-        assert_matches!(h.process(), Err(::Error::Proxy(proxy::Error::Closed)));
+        assert_matches!(h.process(), Err(::Error::Proxy(p::Error::Closed)));
         assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
         assert_matches!(h.user.msgs.pop_front(), None);
         assert_eq!(h.is_closed(), true);
@@ -260,7 +267,7 @@ mod test {
 
         let mut sp = SinglePoll::new(&h.rx).unwrap();
         sp.wait(None).unwrap();
-        assert_matches!(h.process(), Err(::Error::Proxy(proxy::Error::Closed)));
+        assert_matches!(h.process(), Err(::Error::Proxy(p::Error::Closed)));
 
         assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
         assert_matches!(h.user.msgs.pop_front(), None);

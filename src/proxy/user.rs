@@ -1,12 +1,13 @@
 use ::channel::{Sender};
-use ::proxy::{self, Control};
-use ::wrapper::{self as w};
+use super::proxy::{self as p};
+use super::control::{Control};
+use super::wrapper::{self as w};
 
 
 pub trait Tx: From<w::Tx> + Into<Result<w::Tx, Self>> {}
 pub trait Rx: From<w::Rx> + Into<Result<w::Rx, Self>> {}
 
-pub trait Proxy<T: Tx, R: Rx>: proxy::Proxy {
+pub trait Proxy<T: Tx, R: Rx>: p::Proxy {
     fn set_send_channel(&mut self, tx: Sender<R>);
     fn process_recv_channel(&mut self, ctrl: &mut Control, msg: T) -> ::Result<()>;
 }

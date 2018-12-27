@@ -4,7 +4,7 @@ use std::thread::{self, JoinHandle};
 use ::channel::{channel, Sender};
 use ::proxy::{Proxy};
 
-use ::event_loop::{EventLoop};
+use super::event_loop::{EventLoop};
 
 
 #[derive(Debug)]
@@ -55,8 +55,8 @@ mod test {
     use super::*;
 
     use ::channel::{SinglePoll};
-    use ::wrapper::{self};
-    use ::dummy::{self, wait_msgs, wait_close};
+    use ::proxy::wrapper::{self};
+    use ::proxy::dummy::{self, wait_msgs, wait_close};
 
     fn create_dummy() -> (
         wrapper::Proxy<dummy::Proxy, dummy::Tx, dummy::Rx>,
