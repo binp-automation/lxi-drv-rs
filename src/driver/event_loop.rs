@@ -5,8 +5,13 @@ use mio;
 
 use ::error::{IdError};
 use ::channel::{self, Receiver, TryRecvError};
-use ::proxy::control::{self, Id, Eid, PollInfo, AttachControl, DetachControl, EventControl};
-use ::proxy::{Proxy};
+use ::proxy::{
+    Id, Eid, decode_ids,
+    PollInfo,
+    AttachControl, DetachControl, ProcessControl,
+    Proxy
+};
+
 use ::driver::{Tx as Rx};
 
 
@@ -124,7 +129,7 @@ impl EventLoop {
                 let mut entry = entry_opt.take().unwrap();
                 let res = {
                     let proxy = &mut entry.proxy;
-                    let mut ctrl = EventControl::new(
+                    let mut ctrl = ProcessControl::new(
                         id, &self.poll, &mut entry.poll_map,
                         eid, ready,
                     );
@@ -170,7 +175,7 @@ impl EventLoop {
         let mut result = Ok(());
         for event in events.iter() {
             let token = event.token();
-            let (id, eid) = control::decode_ids(token);
+            let (id, eid) = decode_ids(token);
             let ready = event.readiness();
             match id {
                 0 => self.process_self(ctx, ready, eid),

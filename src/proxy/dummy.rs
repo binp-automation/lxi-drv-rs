@@ -2,7 +2,7 @@ use std::collections::{VecDeque};
 
 use ::channel::{Sender, SinglePoll};
 
-use super::control::{AttachControl, DetachControl, EventControl};
+use super::control;
 use super::proxy::{self as p};
 use super::wrapper::{self as w};
 use super::user::{self as u};
@@ -18,15 +18,15 @@ impl Proxy {
 }
 
 impl p::Proxy for Proxy {
-    fn attach(&mut self, _ctrl: &mut AttachControl) -> ::Result<()> {
+    fn attach(&mut self, _ctrl: &mut control::Attach) -> ::Result<()> {
         Ok(())
     }
 
-    fn detach(&mut self, _ctrl: &mut DetachControl) -> ::Result<()> {
+    fn detach(&mut self, _ctrl: &mut control::Detach) -> ::Result<()> {
         Ok(())
     }
 
-    fn process(&mut self, _ctrl: &mut EventControl) -> ::Result<()> {
+    fn process(&mut self, _ctrl: &mut control::Process) -> ::Result<()> {
         Ok(())
     }
 }
@@ -36,7 +36,7 @@ impl u::Proxy<Tx, Rx> for Proxy {
 
     }
 
-    fn process_recv_channel(&mut self, _ctrl: &mut EventControl, _msg: Tx) -> ::Result<()> {
+    fn process_recv_channel(&mut self, _ctrl: &mut control::Process, _msg: Tx) -> ::Result<()> {
         Ok(())
     }
 }

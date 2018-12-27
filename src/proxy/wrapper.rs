@@ -2,7 +2,9 @@ use mio;
 
 use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
 
-use super::control::{AttachControl, DetachControl, EventControl, EventedWrapper, Eid};
+use super::id::{Eid};
+use super::evented::{EventedWrapper};
+use super::control;
 use super::proxy::{self as p};
 use super::user::{self as u};
 
@@ -54,7 +56,7 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Proxy<P, T, R> {
 }
 
 impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
-    fn attach(&mut self, ctrl: &mut AttachControl) -> ::Result<()> {
+    fn attach(&mut self, ctrl: &mut control::Attach) -> ::Result<()> {
         ctrl.register(&self.rx, mio::Ready::readable())
         .and_then(|_| {
             self.user.attach(ctrl)
@@ -74,7 +76,7 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
             })
         })
     }
-    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
+    fn detach(&mut self, ctrl: &mut control::Detach) -> ::Result<()> {
         self.user.detach(ctrl)
         .and_then(|_| { ctrl.deregister(&self.rx) })
         .and_then(|_| {
@@ -88,7 +90,7 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
         })
     }
 
-    fn process(&mut self, ctrl: &mut EventControl) -> ::Result<()> {
+    fn process(&mut self, ctrl: &mut control::Process) -> ::Result<()> {
         match ctrl.id() {
             EID_CHAN_RX => {
                 assert!(ctrl.readiness().is_readable());

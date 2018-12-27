@@ -3,7 +3,11 @@ use std::time::{Duration};
 
 use mio::{Ready};
 
-use ::proxy::{Proxy, Control, Eid};
+use ::proxy::{
+    Eid,
+    Proxy,
+    AttachControl, DetachControl, EventControl,
+};
 
 use super::layer::{self as l};
 
@@ -75,7 +79,7 @@ impl<
     A: Addr<Inner=IA>,
     O: l::OptPop<Opt=Opt, Inner=IO>,
 > Proxy for Layer<IA, IO, IL, A, O> {
-    fn attach(&mut self, _ctrl: &Control) -> ::Result<()> {
+    fn attach(&mut self, _ctrl: &mut AttachControl) -> ::Result<()> {
         if self.addr.is_none() || self.inner.is_connected() {
             Err(super::Error::AlreadyConnected.into())
         } else {
@@ -83,11 +87,11 @@ impl<
         }
     }
 
-    fn detach(&mut self, ctrl: &Control) -> ::Result<()> {
+    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
         self.inner.try_disconnect(ctrl)
     }
 
-    fn process(&mut self, ctrl: &mut Control, ready: Ready, eid: Eid) -> ::Result<()> {
+    fn process(&mut self, ctrl: &mut EventControl) -> ::Result<()> {
         self.inner.process(ctrl, ready, eid)
     }
 }
