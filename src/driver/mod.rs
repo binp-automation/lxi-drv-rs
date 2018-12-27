@@ -5,7 +5,7 @@ use std::mem;
 use std::thread::{self, JoinHandle};
 
 use ::channel::{channel, Sender};
-use ::proxy::{Proxy};
+use ::proxy::{RawProxy as Proxy};
 
 use self::event_loop::{EventLoop};
 

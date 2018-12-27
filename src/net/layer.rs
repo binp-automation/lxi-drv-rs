@@ -1,44 +1,38 @@
-use ::proxy::{Proxy, Control};
+use ::proxy::{
+    RawProxy,
+    AttachControl, DetachControl,
+};
 
-
-pub trait Addr: Clone {
-
+pub trait Pop: Sized {
+    type Elem;
+    type Inner: Push<Elem=Self::Elem, Outer=Self>;
+    fn pop(self) -> (Self::Elem, Self::Inner);
 }
 
-pub trait Opt: Clone {
-
-}
-
-pub trait OptPop: Opt {
-    type Opt: Opt;
-    type Inner: OptPush<Opt=Self::Opt, Outer=Self>;
-    fn pop(self) -> (Self::Opt, Self::Inner);
-}
-
-pub trait OptPush: Opt {
-    type Opt: Opt;
-    type Outer: OptPop<Opt=Self::Opt, Inner=Self>;
-    fn push(self, opt: Self::Opt) -> Self::Outer;
+pub trait Push: Sized {
+    type Elem;
+    type Outer: Pop<Elem=Self::Elem, Inner=Self>;
+    fn push(self, elem: Self::Elem) -> Self::Outer;
 }
 
 
-pub trait Layer: Proxy {
-    type Addr: Addr;
-    type Opt: Opt;
+pub trait Layer: RawProxy {
+    type Addr: Clone;
+    type Opt: Clone;
 
     fn opt(&self) -> Self::Opt;
     fn set_opt(&mut self, opt: Self::Opt);
 
-    fn connect(&mut self, ctrl: &mut Control, addr: Self::Addr) -> ::Result<()>;
-    fn disconnect(&mut self, ctrl: &Control) -> ::Result<()>;
+    fn connect(&mut self, ctrl: &mut AttachControl, addr: Self::Addr) -> ::Result<()>;
+    fn disconnect(&mut self, ctrl: &mut DetachControl) -> ::Result<()>;
 
     fn addr(&self) -> Option<&Self::Addr>;
 
-    fn reconnect(&mut self, ctrl: &mut Control, addr: Option<Self::Addr>) -> ::Result<()> {
+    fn reconnect(&mut self, ctrl: &mut AttachControl, addr: Option<Self::Addr>) -> ::Result<()> {
         match addr {
             Some(addr) => Ok(addr),
             None => match self.addr() {
-                Some(addr) => Ok(addr.clone()),
+                Some(addr) => Ok((*addr).clone()),
                 None => Err(super::Error::NotConnected.into()),
             },
         }.and_then(|addr| {
@@ -52,7 +46,7 @@ pub trait Layer: Proxy {
         self.addr().is_some()
     }
 
-    fn try_disconnect(&mut self, ctrl: &Control) -> ::Result<()> {
+    fn try_disconnect(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
         match self.is_connected() {
             true => self.disconnect(ctrl),
             false => Ok(()),

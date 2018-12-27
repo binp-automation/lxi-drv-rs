@@ -164,7 +164,7 @@ impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Handle<H, T, R> {
 
     pub fn process(&mut self) -> ::Result<()> {
         if self.closed {
-            return Err(p::Error::Closed.into());
+            return Err(super::Error::Closed.into());
         }
 
         loop {
@@ -175,7 +175,7 @@ impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Handle<H, T, R> {
                         Ok(()) => {
                             if exit {
                                 self.closed = true;
-                                break Err(p::Error::Closed.into());
+                                break Err(super::Error::Closed.into());
                             } else {
                                 continue;
                             }
@@ -193,7 +193,7 @@ impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Handle<H, T, R> {
 
     pub fn close(&mut self) -> ::Result<()> {
         if self.closed {
-            return Err(p::Error::Closed.into());
+            return Err(super::Error::Closed.into());
         }
         self.tx.send(Tx::Close.into()).map_err(|e| ::Error::Channel(e.into()))
     }
@@ -208,7 +208,7 @@ impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Drop for Handle<H, T, R> {
         match self.close() {
             Ok(_) => (),
             Err(err) => match err {
-                ::Error::Proxy(p::Error::Closed) => (),
+                ::Error::Proxy(super::Error::Closed) => (),
                 ::Error::Channel(channel::Error::Disconnected) => (),
                 other => panic!("{:?}", other),
             },
@@ -244,7 +244,7 @@ mod test {
 
         assert_eq!(h.is_closed(), false);
 
-        assert_matches!(h.process(), Err(::Error::Proxy(p::Error::Closed)));
+        assert_matches!(h.process(), Err(::Error::Proxy(::proxy::Error::Closed)));
         assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
         assert_matches!(h.user.msgs.pop_front(), None);
         assert_eq!(h.is_closed(), true);
@@ -269,7 +269,7 @@ mod test {
 
         let mut sp = SinglePoll::new(&h.rx).unwrap();
         sp.wait(None).unwrap();
-        assert_matches!(h.process(), Err(::Error::Proxy(p::Error::Closed)));
+        assert_matches!(h.process(), Err(::Error::Proxy(::proxy::Error::Closed)));
 
         assert_matches!(h.user.msgs.pop_front(), Some(Rx::Closed));
         assert_matches!(h.user.msgs.pop_front(), None);

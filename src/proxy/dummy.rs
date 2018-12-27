@@ -88,7 +88,7 @@ pub fn wait_close(h: &mut w::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll) -> ::R
         match h.process() {
             Ok(()) => continue,
             Err(err) => match err {
-                ::Error::Proxy(p::Error::Closed) => break Ok(()),
+                ::Error::Proxy(super::Error::Closed) => break Ok(()),
                 other => break Err(other),
             }
         }

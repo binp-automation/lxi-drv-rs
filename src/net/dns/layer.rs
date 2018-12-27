@@ -1,15 +1,12 @@
 use std::net::{IpAddr};
 use std::time::{Duration};
 
-use mio::{Ready};
-
 use ::proxy::{
-    Eid,
-    Proxy,
-    AttachControl, DetachControl, EventControl,
+    RawProxy,
+    AttachControl, DetachControl, ProcessControl,
 };
 
-use super::layer::{self as l};
+use ::net::layer::{self as l};
 
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -18,8 +15,8 @@ pub enum Host {
     Ip(IpAddr),
 }
 
-pub trait Addr: l::Addr {
-    type Inner: l::Addr;
+pub trait Addr {
+    type Inner;
     fn host(&self) -> &Host;
     fn resolve(&self, ip_addr: &IpAddr) -> Self::Inner;
 }
@@ -41,15 +38,13 @@ impl Default for Opt {
     }
 }
 
-impl l::Opt for Opt {}
-
 
 pub struct Layer<
-    IA: l::Addr,
-    IO: l::OptPush<Opt=Opt, Outer=O>,
+    IA: Clone,
+    IO: l::Push<Elem=Opt, Outer=O> + Clone,
     IL: l::Layer<Addr=IA, Opt=IO>,
     A: Addr<Inner=IA>,
-    O: l::OptPop<Opt=Opt, Inner=IO>,
+    O: l::Pop<Elem=Opt, Inner=IO>,
 > {
     pub opt: Opt,
     pub addr: Option<A>,
@@ -57,11 +52,11 @@ pub struct Layer<
 }
 
 impl<
-    IA: l::Addr,
-    IO: l::OptPush<Opt=Opt, Outer=O>,
+    IA: Clone,
+    IO: l::Push<Elem=Opt, Outer=O> + Clone,
     IL: l::Layer<Addr=IA, Opt=IO>,
     A: Addr<Inner=IA>,
-    O: l::OptPop<Opt=Opt, Inner=IO>,
+    O: l::Pop<Elem=Opt, Inner=IO>,
 > Layer<IA, IO, IL, A, O> {
     pub fn new(inner: IL) -> Self {
         Self {
@@ -73,15 +68,15 @@ impl<
 }
 
 impl<
-    IA: l::Addr,
-    IO: l::OptPush<Opt=Opt, Outer=O>,
+    IA: Clone,
+    IO: l::Push<Elem=Opt, Outer=O> + Clone,
     IL: l::Layer<Addr=IA, Opt=IO>,
     A: Addr<Inner=IA>,
-    O: l::OptPop<Opt=Opt, Inner=IO>,
-> Proxy for Layer<IA, IO, IL, A, O> {
+    O: l::Pop<Elem=Opt, Inner=IO>,
+> RawProxy for Layer<IA, IO, IL, A, O> {
     fn attach(&mut self, _ctrl: &mut AttachControl) -> ::Result<()> {
         if self.addr.is_none() || self.inner.is_connected() {
-            Err(super::Error::AlreadyConnected.into())
+            Err(::net::Error::AlreadyConnected.into())
         } else {
             Ok(())
         }
@@ -91,17 +86,17 @@ impl<
         self.inner.try_disconnect(ctrl)
     }
 
-    fn process(&mut self, ctrl: &mut EventControl) -> ::Result<()> {
-        self.inner.process(ctrl, ready, eid)
+    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        self.inner.process(ctrl)
     }
 }
 
 impl<
-    IA: l::Addr,
-    IO: l::OptPush<Opt=Opt, Outer=O>,
+    IA: Clone,
+    IO: l::Push<Elem=Opt, Outer=O> + Clone,
     IL: l::Layer<Addr=IA, Opt=IO>,
-    A: Addr<Inner=IA>,
-    O: l::OptPop<Opt=Opt, Inner=IO>,
+    A: Addr<Inner=IA> + Clone,
+    O: l::Pop<Elem=Opt, Inner=IO> + Clone,
 > l::Layer for Layer<IA, IO, IL, A, O> {
     type Addr = A;
     type Opt = O;
@@ -116,9 +111,9 @@ impl<
         self.inner.set_opt(io);
     }
     
-    fn connect(&mut self, ctrl: &mut Control, addr: A) -> ::Result<()> {
+    fn connect(&mut self, ctrl: &mut AttachControl, addr: A) -> ::Result<()> {
         if self.is_connected() {
-            return Err(super::Error::AlreadyConnected.into());
+            return Err(::net::Error::AlreadyConnected.into());
         }
 
         let res = match addr.host() {
@@ -131,7 +126,7 @@ impl<
         res
     }
 
-    fn disconnect(&mut self, ctrl: &Control) -> ::Result<()> {
+    fn disconnect(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
         self.addr = None;
         self.inner.try_disconnect(ctrl)
     }

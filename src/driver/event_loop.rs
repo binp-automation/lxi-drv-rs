@@ -9,7 +9,7 @@ use ::proxy::{
     Id, Eid, decode_ids,
     PollInfo,
     AttachControl, DetachControl, ProcessControl,
-    Proxy
+    RawProxy as Proxy,
 };
 
 use ::driver::{Tx as Rx};

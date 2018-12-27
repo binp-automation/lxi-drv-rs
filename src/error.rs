@@ -4,7 +4,7 @@ use std::io;
 
 use ::channel;
 use ::proxy;
-//use ::net;
+use ::net;
 
 
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub enum Error {
     Id(IdError),
     Channel(channel::Error),
     Proxy(proxy::Error),
-//    Net(net::Error),
+    Net(net::Error),
 }
 
 impl error::Error for Error {
@@ -23,7 +23,7 @@ impl error::Error for Error {
             Error::Id(e) => e.description(),
             Error::Channel(e) => e.description(),
             Error::Proxy(e) => e.description(),
-//            Error::Net(e) => e.description(),
+            Error::Net(e) => e.description(),
         }
     }
 
@@ -33,7 +33,7 @@ impl error::Error for Error {
             Error::Id(e) => Some(e),
             Error::Channel(e) => Some(e),
             Error::Proxy(e) => Some(e),
-//            Error::Net(e) => Some(e),
+            Error::Net(e) => Some(e),
         }
     }
 }
@@ -94,10 +94,9 @@ impl From<proxy::Error> for Error {
         Error::Proxy(err)
     }
 }
-/*
+
 impl From<net::Error> for Error {
     fn from(err: net::Error) -> Error {
         Error::Net(err)
     }
 }
-*/
