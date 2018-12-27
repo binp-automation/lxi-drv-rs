@@ -44,7 +44,7 @@ pub mod result;
 pub mod channel;
 
 pub mod proxy;
-//pub mod driver;
+pub mod driver;
 //pub mod net;
 
 pub use error::{Error};

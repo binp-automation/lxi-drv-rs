@@ -1,10 +1,10 @@
 extern crate mdrv;
 
-//use mdrv::{channel, driver, proxy::dummy};
+use mdrv::{channel, driver, proxy::dummy};
 
 
 fn main() {
-    /*
+
     // create driver instance
     let mut driver = driver::Driver::new().unwrap();
     // create dummy proxy and handle pair
@@ -40,5 +40,4 @@ fn main() {
         dummy::Rx::Closed => println!("proxy has been dropped"),
         other => panic!("{:?}", other),
     }
-    */
 }

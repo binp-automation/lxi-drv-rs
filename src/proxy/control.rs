@@ -76,40 +76,29 @@ impl<E: mio::Evented> Evented for EventedWrapper<E> {
     }
 }
 
-pub trait Control {
-    fn register(&mut self, handle: &Evented, interest: Ready) -> ::Result<()>;
-    fn reregister(&mut self, handle: &Evented, interest: Ready) -> ::Result<()>;
-    fn deregister(&mut self, handle: &Evented) -> ::Result<()>;
-    fn has_error(&self) -> bool;
-    fn close(&mut self);
-    fn is_closed(&self) -> bool;
-}
-
 pub struct PollInfo {
     pub ready: Ready,
     pub fresh: bool,
 }
 
-pub struct BaseControl<'a> {
+pub struct Control<'a> {
     pid: Id,
     poll: &'a Poll,
     map: &'a mut HashMap<Eid, PollInfo>,
-    error: bool,
-    closed: bool,
 }
 
-impl<'a> BaseControl<'a> {
+impl<'a> Control<'a> {
     pub(crate) fn new(pid: Id, poll: &'a Poll, map: &'a mut HashMap<Eid, PollInfo>) -> Self {
-        Self {
-            pid, poll, map,
-            error: false,
-            closed: false,
-        }
+        Self { pid, poll, map }
     }
 }
 
-impl<'a> Control for BaseControl<'a> {
-    fn register(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
+impl<'a> Control<'a> {
+    pub fn proxy_id(&self) -> Id {
+        self.pid
+    }
+
+    pub fn register(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
         encode_ids(self.pid, handle.id()).ok_or(IdError::Bad.into()).and_then(|token| {
             self.poll.register(
                 handle, token, interest, 
@@ -120,13 +109,10 @@ impl<'a> Control for BaseControl<'a> {
                 None => Ok(()),
                 Some(_) => Err(IdError::Present.into()),
             }
-        }).or_else(|e| {
-            self.error = true;
-            Err(e)
         })
     }
 
-    fn reregister(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
+    pub fn reregister(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
         match self.map.get_mut(&handle.id()) {
             Some(info) => {
                 info.ready = interest;
@@ -141,48 +127,65 @@ impl<'a> Control for BaseControl<'a> {
                 handle, token, interest, 
                 PollOpt::edge() | PollOpt::oneshot(),
             ).map_err(|e| e.into())
-        }).or_else(|e| {
-            self.error = true;
-            Err(e)
         })
     }
 
-    fn deregister(&mut self, handle: &Evented) -> ::Result<()> {
+    pub fn deregister(&mut self, handle: &Evented) -> ::Result<()> {
         match self.map.remove(&handle.id()) {
             Some(_) => Ok(()),
             None => Err(IdError::Missing.into()),
         }.and_then(|_| {
             self.poll.deregister(handle).map_err(|e| e.into())
-        }).or_else(|e| {
-            self.error = true;
-            Err(e)
         })
     }
+}
 
-    fn has_error(&self) -> bool {
-        self.error
+pub struct CloseControl<'a> {
+    base: Control<'a>,
+    closed: bool,
+}
+
+impl<'a> CloseControl<'a> {
+    pub(crate) fn new(pid: Id, poll: &'a Poll, map: &'a mut HashMap<Eid, PollInfo>) -> Self {
+        Self { base: Control::new(pid, poll, map), closed: false }
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         self.closed = true;
     }
-    fn is_closed(&self) -> bool {
+
+    pub fn is_closed(&self) -> bool {
         self.closed
     }
 }
 
+impl<'a> Deref for CloseControl<'a> {
+    type Target = Control<'a>;
+    fn deref(&self) -> &Control<'a> {
+        &self.base
+    }
+}
+impl<'a> DerefMut for CloseControl<'a> {
+    fn deref_mut(&mut self) -> &mut Control<'a> {
+        &mut self.base
+    }
+}
+
+pub type AttachControl<'a> = CloseControl<'a>;
+pub type DetachControl<'a> = Control<'a>;
+
 pub struct EventControl<'a> {
-    base: BaseControl<'a>,
+    base: CloseControl<'a>,
     eid: Eid,
     ready: Ready,
 }
 
 impl<'a> EventControl<'a> {
-    pub(crate) fn new(base: BaseControl<'a>, eid: Eid, ready: Ready) -> Self {
-        Self {
-            base,
-            eid, ready,
-        }
+    pub(crate) fn new(
+        pid: Id, poll: &'a Poll, map: &'a mut HashMap<Eid, PollInfo>,
+        eid: Eid, ready: Ready,
+    ) -> Self {
+        Self { base: CloseControl::new(pid, poll, map), eid, ready }
     }
     pub fn id(&self) -> Eid {
         self.eid
@@ -192,26 +195,18 @@ impl<'a> EventControl<'a> {
     }
 }
 
-impl<'a> Control for EventControl<'a> {
-    fn register(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
-        self.base.register(handle, interest)
-    }
-    fn reregister(&mut self, handle: &Evented, interest: Ready) -> ::Result<()> {
-        self.base.reregister(handle, interest)
-    }
-    fn deregister(&mut self, handle: &Evented) -> ::Result<()> {
-        self.base.deregister(handle)
-    }
-    fn has_error(&self) -> bool {
-        self.base.has_error()
-    }
-    fn close(&mut self) {
-        self.base.close()
-    }
-    fn is_closed(&self) -> bool {
-        self.base.is_closed()
+impl<'a> Deref for EventControl<'a> {
+    type Target = CloseControl<'a>;
+    fn deref(&self) -> &CloseControl<'a> {
+        &self.base
     }
 }
+impl<'a> DerefMut for EventControl<'a> {
+    fn deref_mut(&mut self) -> &mut CloseControl<'a> {
+        &mut self.base
+    }
+}
+
 
 #[cfg(test)]
 mod test {

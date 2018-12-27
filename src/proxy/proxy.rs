@@ -1,7 +1,7 @@
 use std::error::{Error as StdError};
 use std::fmt;
 
-use super::control::{BaseControl, EventControl};
+use super::control::{AttachControl, DetachControl, EventControl};
 
 #[derive(Debug)]
 pub enum Error {
@@ -30,8 +30,8 @@ impl fmt::Display for Error {
 }
 
 pub trait Proxy {
-    fn attach(&mut self, ctrl: &mut BaseControl) -> ::Result<()>;
-    fn detach(&mut self, ctrl: &mut BaseControl) -> ::Result<()>;
+    fn attach(&mut self, ctrl: &mut AttachControl) -> ::Result<()>;
+    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()>;
 
     fn process(&mut self, ctrl: &mut EventControl) -> ::Result<()>;
 }

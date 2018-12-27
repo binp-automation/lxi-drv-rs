@@ -1,17 +1,17 @@
-use std::cell::{Cell};
 use std::time::{Duration};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use mio;
 
 use ::error::{IdError};
 use ::channel::{self, Receiver, TryRecvError};
-use ::proxy::{self, Id, Eid, Proxy, Control};
+use ::proxy::control::{self, Id, Eid, PollInfo, AttachControl, DetachControl, EventControl};
+use ::proxy::{Proxy};
 use ::driver::{Tx as Rx};
 
 
 struct Context {
-    events: Cell<Option<mio::Events>>,
+    events: Option<mio::Events>,
 
     to_add: Vec<Box<dyn Proxy + Send>>,
     to_del: BTreeSet<Id>,
@@ -22,35 +22,36 @@ struct Context {
 impl Context {
     fn new(capacity: usize) -> Self {
         Self {
-            events: Cell::new(Some(mio::Events::with_capacity(capacity))),
+            events: Some(mio::Events::with_capacity(capacity)),
             to_add: Vec::new(),
             to_del: BTreeSet::new(),
             exit: false,
         }
     }
 
-    fn apply(&mut self, ctrl: &Control) -> ::Result<()> {
-        if ctrl.closed {
-            self.del(ctrl.id)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn add(&mut self, proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
+    fn add(&mut self, proxy: Box<dyn Proxy + Send>) {
         self.to_add.push(proxy);
-        Ok(())
     }
 
-    fn del(&mut self, id: Id) -> ::Result<()> {
+    fn del(&mut self, id: Id) {
         self.to_del.insert(id);
-        Ok(())
+    }
+}
+
+pub struct ProxyEntry {
+    pub proxy: Box<dyn Proxy + Send>,
+    pub poll_map: HashMap<Eid, PollInfo>,
+}
+
+impl ProxyEntry {
+    pub fn new(proxy: Box<dyn Proxy + Send>) -> Self {
+        Self { proxy, poll_map: HashMap::new() }
     }
 }
 
 pub struct EventLoop {
     rx: Receiver<Rx>,
-    proxies: BTreeMap<Id, Cell<Option<Box<dyn Proxy + Send>>>>,
+    proxies: BTreeMap<Id, Option<ProxyEntry>>,
     poll: mio::Poll,
 }
 
@@ -77,16 +78,27 @@ impl EventLoop {
         }
     }
 
-    fn control(&self, id: Id) -> Control {
-        Control::new(id, &self.poll)
-    }
-
-    fn attach(&mut self, id: Id, mut proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
+    fn attach(&mut self, id: Id, proxy: Box<dyn Proxy + Send>) -> ::Result<()> {
         if !self.proxies.contains_key(&id) {
-            proxy.attach(&self.control(id)).and_then(|_| {
-                match self.proxies.insert(id, Cell::new(Some(proxy))) {
-                    Some(_) => unreachable!(),
-                    None => Ok(()),
+            let mut entry = ProxyEntry::new(proxy);
+            {
+                let (proxy, poll_map) = (&mut entry.proxy, &mut entry.poll_map);
+                let mut ctrl = AttachControl::new(id, &self.poll, poll_map); 
+                proxy.attach(&mut ctrl).and_then(|_| {
+                    if ctrl.is_closed() {
+                        proxy.detach(&mut ctrl).map(|_| false)
+                    } else {
+                        Ok(true)
+                    }
+                })
+            }.and_then(|should_add| {
+                if should_add {
+                    match self.proxies.insert(id, Some(entry)) {
+                        Some(_) => unreachable!(),
+                        None => Ok(()),
+                    }
+                } else {
+                    Ok(())
                 }
             })
         } else {
@@ -94,35 +106,45 @@ impl EventLoop {
         }
     }
 
-    fn detach(&mut self, id: Id) -> ::Result<Box<dyn Proxy + Send>> {
+    fn detach(&mut self, id: Id) -> ::Result<()> {
         match self.proxies.remove(&id) {
-            Some(proxy_cell) => {
-                let mut proxy = proxy_cell.into_inner().unwrap();
-                match proxy.detach(&self.control(id)) {
-                    Ok(()) => Ok(proxy),
-                    Err(e) => Err(e),
-                }
+            Some(entry_opt) => {
+                let mut entry = entry_opt.unwrap();
+                let mut proxy = entry.proxy;
+                let mut ctrl = DetachControl::new(id, &self.poll, &mut entry.poll_map);
+                proxy.detach(&mut ctrl)
             },
             None => Err(IdError::Missing.into()),
         }
     }
 
-    fn process_proxy(&self, ctx: &mut Context, ready: mio::Ready, id: Id, eid: Eid) -> ::Result<()> {
-        match self.proxies.get(&id) {
-            Some(ref proxy_cell) => {
-                let mut proxy = proxy_cell.take().unwrap();
-                let mut ctrl = self.control(id);
-                let res = proxy.process(&mut ctrl, ready, eid).and_then(|_| {
-                    ctx.apply(&ctrl)
-                });
-                proxy_cell.set(Some(proxy));
+    fn process_proxy(&mut self, ctx: &mut Context, ready: mio::Ready, id: Id, eid: Eid) -> ::Result<()> {
+        match self.proxies.get_mut(&id) {
+            Some(entry_opt) => {
+                let mut entry = entry_opt.take().unwrap();
+                let res = {
+                    let proxy = &mut entry.proxy;
+                    let mut ctrl = EventControl::new(
+                        id, &self.poll, &mut entry.poll_map,
+                        eid, ready,
+                    );
+                    proxy.process(&mut ctrl).and_then(|_| {
+                        if ctrl.is_closed() {
+                            ctx.del(id);
+                        }
+                        Ok(())
+                    })
+                };
+                if entry_opt.replace(entry).is_some() {
+                    unreachable!();
+                }
                 res
             },
             None => Err(IdError::Missing.into()),
         }
     }
     
-    fn process_self(&self, ctx: &mut Context, ready: mio::Ready, eid: Eid) -> ::Result<()> {
+    fn process_self(&mut self, ctx: &mut Context, ready: mio::Ready, eid: Eid) -> ::Result<()> {
         assert_eq!(eid, 0);
         assert!(ready.is_readable());
         loop {
@@ -132,10 +154,7 @@ impl EventLoop {
                         ctx.exit = true;
                     },
                     Rx::Attach(proxy) => {
-                        match ctx.add(proxy) {
-                            Ok(_) => continue,
-                            Err(err) => break Err(err),
-                        }
+                        ctx.add(proxy);
                     },
                 },
                 Err(err) => match err {
@@ -146,12 +165,12 @@ impl EventLoop {
         }
     }
 
-    fn process(&self, ctx: &mut Context) -> ::Result<()> {
+    fn process(&mut self, ctx: &mut Context) -> ::Result<()> {
         let events = ctx.events.take().unwrap();
         let mut result = Ok(());
         for event in events.iter() {
             let token = event.token();
-            let (id, eid) = proxy::decode_ids(token);
+            let (id, eid) = control::decode_ids(token);
             let ready = event.readiness();
             match id {
                 0 => self.process_self(ctx, ready, eid),
@@ -160,18 +179,14 @@ impl EventLoop {
                 result = Err(e);
             });
         }
-        ctx.events.set(Some(events));
+        if ctx.events.replace(events).is_some() {
+            unreachable!();
+        }
         result
     }
 
     fn commit(&mut self, ctx: &mut Context) -> ::Result<()> {
         let mut result = Ok(());
-        for id in ctx.to_del.iter() {
-            self.detach(*id).map(|_| ()).unwrap_or_else(|e| {
-                result = Err(e);
-            });
-        }
-        ctx.to_del.clear();
 
         let mut id_cnt = self.next_id();
         for proxy in ctx.to_add.drain(..) {
@@ -182,11 +197,18 @@ impl EventLoop {
             });
         }
 
-        Ok(())
+        for id in ctx.to_del.iter() {
+            self.detach(*id).map(|_| ()).unwrap_or_else(|e| {
+                result = Err(e);
+            });
+        }
+        ctx.to_del.clear();
+
+        result
     }
 
     fn run_once(&mut self, ctx: &mut Context, timeout: Option<Duration>) -> ::Result<()> {
-        self.poll.poll(ctx.events.get_mut().as_mut().unwrap(), timeout).map_err(|e| ::Error::Io(e))?;
+        self.poll.poll(ctx.events.as_mut().unwrap(), timeout).map_err(|e| ::Error::Io(e))?;
 
         self.process(ctx).unwrap();
 
@@ -207,9 +229,11 @@ impl EventLoop {
 impl Drop for EventLoop {
     fn drop(&mut self) {
         let mut res = Ok(());
-        for (id, proxy_cell) in self.proxies.iter() {
-            let mut proxy = proxy_cell.take().unwrap();
-            if let Err(e) = proxy.detach(&self.control(*id)) {
+        for (id, entry_opt) in self.proxies.iter_mut() {
+            let mut entry = entry_opt.take().unwrap();
+            let mut proxy = entry.proxy;
+            let mut ctrl = DetachControl::new(*id, &self.poll, &mut entry.poll_map);
+            if let Err(e) = proxy.detach(&mut ctrl) {
                 res = Err(e);
             }
         }

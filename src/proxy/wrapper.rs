@@ -2,7 +2,7 @@ use mio;
 
 use ::channel::{self, channel, Sender, Receiver, SendError, TryRecvError};
 
-use super::control::{Control, BaseControl, EventControl, EventedWrapper, Eid};
+use super::control::{AttachControl, DetachControl, EventControl, EventedWrapper, Eid};
 use super::proxy::{self as p};
 use super::user::{self as u};
 
@@ -54,7 +54,7 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Proxy<P, T, R> {
 }
 
 impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
-    fn attach(&mut self, ctrl: &mut BaseControl) -> ::Result<()> {
+    fn attach(&mut self, ctrl: &mut AttachControl) -> ::Result<()> {
         ctrl.register(&self.rx, mio::Ready::readable())
         .and_then(|_| {
             self.user.attach(ctrl)
@@ -74,7 +74,7 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
             })
         })
     }
-    fn detach(&mut self, ctrl: &mut BaseControl) -> ::Result<()> {
+    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
         self.user.detach(ctrl)
         .and_then(|_| { ctrl.deregister(&self.rx) })
         .and_then(|_| {
