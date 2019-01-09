@@ -1,7 +1,4 @@
-use ::proxy::{
-    RawProxy,
-    AttachControl, DetachControl,
-};
+use ::proxy::{AttachControl, DetachControl, ProcessControl};
 
 pub trait Pop: Sized {
     type Elem;
@@ -16,7 +13,7 @@ pub trait Push: Sized {
 }
 
 
-pub trait Layer: RawProxy {
+pub trait Layer {
     type Addr: Clone;
     type Opt: Clone;
 
@@ -52,4 +49,6 @@ pub trait Layer: RawProxy {
             false => Ok(()),
         }
     }
+
+    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()>;
 }

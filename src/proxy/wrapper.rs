@@ -9,7 +9,7 @@ use super::proxy::{self as p};
 use super::user::{self as u};
 
 
-const EID_CHAN_RX: Eid = 0;
+pub const EID_CHAN_RX: Eid = 0x00;
 
 #[derive(Debug)]
 pub enum Tx {

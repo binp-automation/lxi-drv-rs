@@ -134,4 +134,8 @@ impl<
     fn addr(&self) -> Option<&Self::Addr> {
         self.addr.as_ref()
     }
+
+    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        Ok(())
+    }
 }

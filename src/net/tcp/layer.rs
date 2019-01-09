@@ -13,15 +13,36 @@ use std::time::Duration;
 
 use mio::{Ready, PollOpt, net::{TcpStream}};
 
-use super::super::layer::{self as l};
+use mio_byte_fifo::{Producer, Consumer};
 
+use ::error::{IdError};
+use ::channel::{Sender, Error as ChanError};
 use ::proxy::{
-    RawProxy,
     AttachControl, DetachControl, ProcessControl,
+    Eid, Evented, EventedWrapper as Ew, EID_CHAN_RX,
 };
 
+use super::super::{error::{Error as NetError}, layer::{self as l}};
+
+
+pub const EID_TCP_SOCK: Eid = 0x10;
+pub const EID_BUF_TX: Eid = 0x11;
+pub const EID_BUF_RX: Eid = 0x12;
 
 pub type Addr = SocketAddr;
+
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Tx {
+    Connect(Addr),
+    Disconnect,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Rx {
+    Connected,
+    Disconnected,
+}
 
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -40,25 +61,30 @@ impl Default for Opt {
     }
 }
 
-pub struct Layer {
-    pub opt: Opt,
-    pub addr: Option<Addr>,
-    pub sock: Option<TcpStream>,
+struct Sock {
+    addr: Addr,
+    handle: Ew<TcpStream>,
 }
 
-impl RawProxy for Layer {
-    fn attach(&mut self, _ctrl: &mut AttachControl) -> ::Result<()> {
+pub struct Layer<R: From<Rx>> {
+    opt: Opt,
+    sock: Option<Sock>,
+    chan: Sender<R>,
+    txbuf: Producer,
+    rxbuf: Consumer,
+}
+
+impl<R: From<Rx>> Layer<R> {
+    fn process_channel(&mut self, ctrl: &mut ProcessControl, msg: Tx) -> ::Result<()> {
         Ok(())
     }
-    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
-        Ok(())
-    }
-    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+
+    fn process_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
         Ok(())
     }
 }
 
-impl l::Layer for Layer {
+impl<R: From<Rx>> l::Layer for Layer<R> {
     type Addr = Addr;
     type Opt = Opt;
 
@@ -70,13 +96,40 @@ impl l::Layer for Layer {
     }
 
     fn connect(&mut self, ctrl: &mut AttachControl, addr: Self::Addr) -> ::Result<()> {
-        Ok(())
+        if self.sock.is_none() {
+            TcpStream::connect(&addr).map_err(|e| e.into()).and_then(|sock| {
+                let handle = Ew::new(sock, EID_TCP_SOCK);
+                ctrl.register(&handle, Ready::all()).and_then(|_| {
+                    self.sock = Some(Sock { addr, handle });
+                    self.chan.send(Rx::Connected.into()).map_err(|e| ChanError::from(e).into())
+                })
+            })
+        } else {
+            Err(NetError::AlreadyConnected.into())
+        }
     }
     fn disconnect(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
-        Ok(())
+        match self.sock.take() {
+            Some(sock) => {
+                ctrl.deregister(&sock.handle).and_then(|_| {
+                    self.chan.send(Rx::Disconnected.into()).map_err(|e| ChanError::from(e).into())
+                })
+            },
+            None => Err(NetError::NotConnected.into()),
+        }
     }
     fn addr(&self) -> Option<&Self::Addr> {
-        self.addr.as_ref()
+        match self.sock {
+            Some(ref sock) => Some(&sock.addr),
+            None => None,
+        }
+    }
+    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        match ctrl.id() {
+            //EID_CHAN_RX => self.process_channel(ctrl),
+            EID_TCP_SOCK => self.process_socket(ctrl),
+            _ => Err(IdError::Bad.into()),
+        }
     }
 }
 
@@ -196,6 +249,60 @@ mod test {
                 }
             }
         }
+        
+        thr.join().unwrap();
+    }
+
+
+    use std::collections::{HashMap};
+
+    use ::channel::{channel, PollReceiver};
+    use ::proxy::{AttachControl};
+    use self::l::Layer as RawLayer;
+
+    #[test]
+    fn layer_connect() {
+        let lis = listen_free(LOCALHOST, 8000..9000).unwrap();
+        let port = lis.local_addr().unwrap().port();
+        
+        let (txch, rxch) = channel();
+        let (txbuf, rxbuf) = mio_byte_fifo::create(16);
+
+        let thr = thread::spawn(move || {
+            let stream = lis.incoming().next().unwrap().unwrap();
+            
+            let mut prx = PollReceiver::new(&rxch).unwrap();
+
+            assert_eq!(
+                prx.recv(Some(Duration::from_secs(10))).unwrap(),
+                Rx::Connected
+            );
+
+            assert_eq!(
+                prx.recv(Some(Duration::from_secs(10))).unwrap(),
+                Rx::Disconnected
+            );
+
+            stream.shutdown(Shutdown::Both).unwrap();
+        });
+
+        let poll = Poll::new().unwrap();
+        let mut hmap = HashMap::new();
+        let mut ctrl = AttachControl::new(0, &poll, &mut hmap);
+
+        let mut layer = Layer::<Rx> {
+            opt: Opt::default(),
+            sock: None,
+            chan: txch,
+            txbuf,
+            rxbuf,
+        };
+
+        layer.connect(&mut ctrl, SocketAddr::new(LOCALHOST, port)).unwrap();
+
+        thread::sleep(Duration::from_millis(10));
+
+        layer.disconnect(&mut ctrl).unwrap();
         
         thr.join().unwrap();
     }

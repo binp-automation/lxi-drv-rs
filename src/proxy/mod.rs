@@ -15,7 +15,10 @@ pub mod dummy;
 pub use self::error::*;
 
 pub use self::id::*;
-pub use self::evented::*;
+pub use self::evented::{
+    Evented,
+    EventedWrapper,
+};
 
 pub use self::control::{
     PollInfo,
@@ -32,10 +35,11 @@ pub use self::wrapper::{
     Rx as BaseRx,
     Proxy as ProxyWrapper,
     Handle as HandleWrapper,
+    EID_CHAN_RX,
 };
 pub use self::user::{
-    Proxy,
-    Handle,
+    Proxy as UserProxy,
+    Handle as UserHandle,
     Tx as UserTx,
     Rx as UserRx,
 };

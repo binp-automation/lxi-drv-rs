@@ -1,5 +1,7 @@
 use std::net::{IpAddr};
 
+use ::proxy::{BaseTx, BaseRx, UserTx, UserRx};
+
 use ::net::layer::{self};
 use ::net::dns::layer::{self as dns, Host};
 
@@ -44,3 +46,52 @@ impl layer::Pop for Opt {
 }
 
 pub type Layer = dns::Layer<tcp::Addr, tcp::Opt, tcp::Layer, Addr, Opt>;
+
+
+pub enum Tx {
+    Base(BaseTx),
+    Connect(Addr),
+    Disconnect,
+    SetOpt(dns::Opt),
+}
+
+impl From<BaseTx> for Tx {
+    fn from(base: BaseTx) -> Self {
+        Tx::Base(base)
+    }
+}
+
+impl Into<Result<BaseTx, Tx>> for Tx {
+    fn into(self) -> Result<BaseTx, Tx> {
+        match self {
+            Tx::Base(base) => Ok(base),
+            other => Err(other),
+        }
+    }
+}
+
+impl UserTx for Tx {}
+
+pub enum Rx {
+    Base(BaseRx),
+    DnsResolved(tcp::Addr),
+    Connected(Addr),
+    Disconnected,
+}
+
+impl From<BaseRx> for Rx {
+    fn from(base: BaseRx) -> Self {
+        Rx::Base(base)
+    }
+}
+
+impl Into<Result<BaseRx, Rx>> for Rx {
+    fn into(self) -> Result<BaseRx, Rx> {
+        match self {
+            Rx::Base(base) => Ok(base),
+            other => Err(other),
+        }
+    }
+}
+
+impl UserRx for Rx {}

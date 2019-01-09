@@ -155,15 +155,19 @@ impl<'a, T> PollReceiver<'a, T> {
         match self.rx.try_recv() {
             Ok(msg) => Ok(msg),
             Err(err) => match err {
-                TryRecvError::Empty => self.wait(timeout).and_then(|_| {
+                TryRecvError::Empty => {
+                    let wres = self.wait(timeout);
                     match self.rx.try_recv() {
                         Ok(msg) => Ok(msg),
                         Err(err) => match err {
-                            TryRecvError::Empty => unreachable!(),
+                            TryRecvError::Empty => match wres {
+                                Ok(()) => unreachable!(),
+                                Err(e) => Err(e),
+                            },
                             TryRecvError::Disconnected => Err(RecvError::Disconnected),
                         }
                     }
-                }),
+                },
                 TryRecvError::Disconnected => Err(RecvError::Disconnected),
             }
         }

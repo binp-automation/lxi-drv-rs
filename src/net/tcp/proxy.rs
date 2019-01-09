@@ -1,17 +1,42 @@
-use std::net::IpAddr;
+use ::channel::{Sender};
+use ::error::{IdError};
+use ::proxy::{
+    RawProxy,
+    AttachControl, DetachControl, ProcessControl,
+    BaseTx, BaseRx, UserTx, UserRx,
+    Eid, Evented, EventedWrapper as Ew, EID_CHAN_RX,
+};
 
-use mio_extras::channel::Sender;
 
-use ::proxy::{control, Proxy, BaseTx, BaseRx, UserTx, UserRx};
 
-use super::{layer as tcp, dns};
+impl RawProxy for Layer {
+    fn attach(&mut self, ctrl: &mut AttachControl) -> ::Result<()> {
+        match self.sock {
+            Some(ref sock) => ctrl.register(sock, Ready::all()),
+            None => Ok(()),
+        }
+    }
 
+    fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {
+        match self.sock {
+            Some(ref sock) => ctrl.deregister(sock),
+            None => Ok(()),
+        }
+    }
+    fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        match ctrl.id() {
+            EID_CHAN_RX => self.process_channel(ctrl),
+            EID_TCP_SOCK => self.process_socket(ctrl),
+            other => Err(IdError::BadId.into()),
+        }
+    }
+}
 
 pub enum Tx {
     Base(BaseTx),
-    Connect(dns::Addr),
+    Connect(Addr),
     Disconnect,
-    SetOpt(dns::Opt),
+    SetOpt(Opt),
 }
 
 impl From<BaseTx> for Tx {
@@ -19,6 +44,7 @@ impl From<BaseTx> for Tx {
         Tx::Base(base)
     }
 }
+
 impl Into<Result<BaseTx, Tx>> for Tx {
     fn into(self) -> Result<BaseTx, Tx> {
         match self {
@@ -27,12 +53,12 @@ impl Into<Result<BaseTx, Tx>> for Tx {
         }
     }
 }
+
 impl UserTx for Tx {}
 
 pub enum Rx {
     Base(BaseRx),
-    DnsResolved(tcp::Addr),
-    Connected(IpAddr),
+    Connected(Addr),
     Disconnected,
 }
 
@@ -41,6 +67,7 @@ impl From<BaseRx> for Rx {
         Rx::Base(base)
     }
 }
+
 impl Into<Result<BaseRx, Rx>> for Rx {
     fn into(self) -> Result<BaseRx, Rx> {
         match self {
@@ -49,14 +76,15 @@ impl Into<Result<BaseRx, Rx>> for Rx {
         }
     }
 }
+
 impl UserRx for Rx {}
 
-
-impl Proxy<Tx, Rx> for dns::Layer {
-    fn set_send_channel(&mut self, tx: Sender<Rx>) {
+impl UserProxy for Layer {
+    fn set_send_channel(&mut self, tx: Sender<R>) {
 
     }
-    fn process_recv_channel(&mut self, ctrl: &mut control::Process, msg: Tx) -> ::Result<()> {
-        Ok(())
+
+    fn process_recv_channel(&mut self, ctrl: &mut control::Process, msg: T) -> ::Result<()> {
+
     }
 }
