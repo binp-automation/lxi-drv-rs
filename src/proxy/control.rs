@@ -35,7 +35,7 @@ impl<'a> Base<'a> {
         encode_ids(self.pid, handle.id()).ok_or(IdError::Bad.into()).and_then(|token| {
             self.poll.register(
                 handle, token, interest, 
-                PollOpt::edge() | PollOpt::oneshot(),
+                PollOpt::edge(),
             ).map_err(|e| e.into())
         }).and_then(|_| {
             match self.map.insert(handle.id(), PollInfo { ready: interest, fresh: true }) {
@@ -58,7 +58,7 @@ impl<'a> Base<'a> {
         }).and_then(|token| {
             self.poll.register(
                 handle, token, interest, 
-                PollOpt::edge() | PollOpt::oneshot(),
+                PollOpt::edge(),
             ).map_err(|e| e.into())
         })
     }

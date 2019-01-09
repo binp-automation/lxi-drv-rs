@@ -47,7 +47,7 @@ pub struct Layer {
 }
 
 impl RawProxy for Layer {
-    fn attach(&mut self, ctrl: &mut AttachControl) -> ::Result<()> {
+    fn attach(&mut self, _ctrl: &mut AttachControl) -> ::Result<()> {
         Ok(())
     }
     fn detach(&mut self, ctrl: &mut DetachControl) -> ::Result<()> {

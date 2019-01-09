@@ -177,6 +177,8 @@ mod test {
     use std::thread;
     use std::time::{Duration};
 
+    use mio::{Poll, Events, Token, Ready, PollOpt};
+
 
     #[test]
     fn send_recv() {
@@ -274,5 +276,138 @@ mod test {
 
         PollReceiver::new(&rx).unwrap();
         assert_matches!(PollReceiver::new(&rx).err(), Some(Error::Io(_)));
+    }
+
+    #[test]
+    fn poll_before() {
+        let (tx, rx) = channel::<u32>();
+        let poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(16);
+
+        tx.send(1).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.register(&rx, Token(0), Ready::readable(), PollOpt::edge()).unwrap();
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        let mut hdl = false;
+        for e in events.iter() {
+            assert_eq!(e.token().0, 0);
+            assert!(e.readiness().is_readable());
+            assert_eq!(rx.try_recv().unwrap(), 1);
+            hdl = true;
+        }
+        assert!(hdl);
+    }
+
+    #[test]
+    fn poll_after() {
+        let (tx, rx) = channel::<u32>();
+        let poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(16);
+
+        poll.register(&rx, Token(0), Ready::readable(), PollOpt::edge()).unwrap();
+
+        tx.send(1).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_some());
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_none());
+
+        assert_eq!(rx.try_recv().unwrap(), 1);
+        thread::sleep(Duration::from_millis(10));
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_none());
+
+        tx.send(2).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_some());
+    }
+
+    #[test]
+    fn poll_double() {
+        let (tx, rx) = channel::<u32>();
+        let poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(16);
+
+        tx.send(1).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.register(&rx, Token(0), Ready::readable(), PollOpt::edge()).unwrap();
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+
+        tx.send(2).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        let mut hdl = false;
+        for e in events.iter() {
+            assert_eq!(e.token().0, 0);
+            assert!(e.readiness().is_readable());
+            assert_eq!(rx.try_recv().unwrap(), 1);
+            assert_eq!(rx.try_recv().unwrap(), 2);
+            hdl = true;
+        }
+        assert!(hdl);
+
+        tx.send(3).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_some());
+
+        tx.send(4).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        assert!(events.iter().next().is_none());
+    }
+
+    #[test]
+    fn poll_oneshot() {
+        let (tx, rx) = channel::<u32>();
+        let poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(16);
+
+        tx.send(1).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.register(
+            &rx, Token(0), Ready::readable(), 
+            PollOpt::edge() | PollOpt::oneshot()
+        ).unwrap();
+
+        poll.poll(&mut events, Some(Duration::from_millis(10))).unwrap();
+        let mut hdl = false;
+        for e in events.iter() {
+            assert_eq!(e.token().0, 0);
+            assert!(e.readiness().is_readable());
+            assert_eq!(rx.try_recv().unwrap(), 1);
+            hdl = true;
+        }
+        assert!(hdl);
+
+        tx.send(2).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        poll.reregister(
+            &rx, Token(0), Ready::readable(), 
+            PollOpt::edge() | PollOpt::oneshot()
+        ).unwrap();
+
+        let mut hdl = false;
+        for e in events.iter() {
+            assert_eq!(e.token().0, 0);
+            assert!(e.readiness().is_readable());
+            assert_eq!(rx.try_recv().unwrap(), 2);
+            hdl = true;
+        }
+        assert!(hdl);
     }
 }

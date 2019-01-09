@@ -37,6 +37,7 @@
 
 extern crate mio;
 extern crate mio_extras;
+extern crate mio_byte_fifo;
 
 
 pub mod error;
