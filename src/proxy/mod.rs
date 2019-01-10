@@ -35,7 +35,7 @@ pub use self::wrapper::{
     Rx as BaseRx,
     Proxy as ProxyWrapper,
     Handle as HandleWrapper,
-    EID_CHAN_RX,
+    EIDS_NEXT,
 };
 pub use self::user::{
     Proxy as UserProxy,

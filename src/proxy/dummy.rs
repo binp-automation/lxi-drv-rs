@@ -12,7 +12,7 @@ pub use self::w::{Tx, Rx};
 pub struct Proxy {}
 
 impl Proxy {
-    fn new() -> Self {
+    fn new(_tx: Sender<Rx>) -> Self {
         Self {}
     }
 }
@@ -32,10 +32,6 @@ impl p::Proxy for Proxy {
 }
 
 impl u::Proxy<Tx, Rx> for Proxy {
-    fn set_send_channel(&mut self, _tx: Sender<Rx>) {
-
-    }
-
     fn process_recv_channel(&mut self, _ctrl: &mut control::Process, _msg: Tx) -> ::Result<()> {
         Ok(())
     }
@@ -46,7 +42,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    fn new() -> Self {
+    fn new(_tx: Sender<Tx>) -> Self {
         Self {
             msgs: VecDeque::new(),
         }
@@ -54,7 +50,6 @@ impl Handle {
 }
 
 impl u::Handle<Tx, Rx> for Handle {
-    fn set_send_channel(&mut self, _tx: Sender<Tx>) {}
     fn process_recv_channel(&mut self, msg: Rx) -> ::Result<()> {
         self.msgs.push_back(msg);
         Ok(())
@@ -62,7 +57,7 @@ impl u::Handle<Tx, Rx> for Handle {
 }
 
 pub fn create() -> ::Result<(w::Proxy<Proxy, Tx, Rx>, w::Handle<Handle, Tx, Rx>)> {
-    w::create(Proxy::new(), Handle::new())
+    w::create(|tx| Proxy::new(tx), |tx| Handle::new(tx))
 }
 
 pub fn wait_msgs(h: &mut w::Handle<Handle, Tx, Rx>, sp: &mut SinglePoll, n: usize) -> ::Result<()> {

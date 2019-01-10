@@ -4,7 +4,7 @@ use mio::{Token};
 pub type Id = usize;
 pub type Eid = usize;
 
-pub const EID_BITS: usize = 8;
+pub const EID_BITS: usize = 12;
 pub const EID_MASK: usize = (1<<EID_BITS) - 1;
 
 pub fn encode_ids(id: Id, eid: Eid) -> Option<Token> {

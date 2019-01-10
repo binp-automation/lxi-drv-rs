@@ -9,7 +9,8 @@ use super::proxy::{self as p};
 use super::user::{self as u};
 
 
-pub const EID_CHAN_RX: Eid = 0x00;
+const EID_CHAN_RX: Eid = 0;
+pub const EIDS_NEXT: Eid = EID_CHAN_RX + 1;
 
 #[derive(Debug)]
 pub enum Tx {
@@ -46,8 +47,7 @@ pub struct Proxy<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> {
 }
 
 impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Proxy<P, T, R> {
-    fn new(mut user: P, tx: Sender<R>, rx: Receiver<T>) -> Self {
-        user.set_send_channel(tx.clone());
+    fn new(user: P, tx: Sender<R>, rx: Receiver<T>) -> Self {
         Self {
             user, tx,
             rx: EventedWrapper::new(rx, EID_CHAN_RX),
@@ -144,8 +144,7 @@ pub struct Handle<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> {
 }
 
 impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Handle<H, T, R> {
-    fn new(mut user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
-        user.set_send_channel(tx.clone());
+    fn new(user: H, tx: Sender<T>, rx: Receiver<R>) -> Self {
         Self { user, tx, rx, closed: false }
     }
 
@@ -216,12 +215,18 @@ impl<H: u::Handle<T, R>, T: u::Tx, R: u::Rx> Drop for Handle<H, T, R> {
     }
 }
 
-pub fn create<P, H, T, R>(user_proxy: P, user_handle: H) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
-where P: u::Proxy<T, R>, H: u::Handle<T, R>, T: u::Tx, R: u::Rx {
+pub fn create<P, H, T, R, FP, FH>(
+    make_user_proxy: FP,
+    make_user_handle: FH,
+) -> ::Result<(Proxy<P, T, R>, Handle<H, T, R>)>
+where 
+    P: u::Proxy<T, R>, H: u::Handle<T, R>, T: u::Tx, R: u::Rx,
+    FP: Fn(Sender<R>) -> P, FH: Fn(Sender<T>) -> H,
+{
     let (ptx, hrx) = channel();
     let (htx, prx) = channel();
-    let proxy = Proxy::new(user_proxy, ptx, prx);
-    let handle = Handle::new(user_handle, htx, hrx);
+    let proxy = Proxy::new(make_user_proxy(ptx.clone()), ptx, prx);
+    let handle = Handle::new(make_user_handle(htx.clone()), htx, hrx);
     Ok((proxy, handle))
 }
 

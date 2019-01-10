@@ -12,7 +12,6 @@ pub trait Push: Sized {
     fn push(self, elem: Self::Elem) -> Self::Outer;
 }
 
-
 pub trait Layer {
     type Addr: Clone;
     type Opt: Clone;
@@ -51,4 +50,16 @@ pub trait Layer {
     }
 
     fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()>;
+}
+
+pub trait Notifier {
+    type Msg;
+    fn notify(&mut self, msg: Self::Msg) -> ::Result<()>;
+}
+
+impl<T> Notifier for ::channel::Sender<T> {
+    type Msg = T;
+    fn notify(&mut self, msg: T) -> ::Result<()> {
+        self.send(msg).map_err(|e| ::channel::Error::from(e).into())
+    }
 }
