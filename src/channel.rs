@@ -1,5 +1,5 @@
 use std::io;
-use std::time::{Duration};
+use std::time::{Duration, Instant};
 use std::sync::mpsc::{self as std_chan};
 use std::error::{Error as StdError};
 use std::fmt;
@@ -119,21 +119,34 @@ impl SinglePoll {
             mio::Ready::readable(),
             mio::PollOpt::edge()
         ).map_err(|e| Error::Io(e))?;
-        let events = mio::Events::with_capacity(1);
+        let events = mio::Events::with_capacity(4);
 
         Ok(Self { poll, events })
     }
 
     pub fn wait(&mut self, timeout: Option<Duration>) -> Result<(), RecvError> {
-        self.poll.poll(&mut self.events, timeout).map_err(|e| RecvError::Io(e)).and_then(|_| {
-            match self.events.iter().next() {
-                Some(res) => {
-                    assert!(res.token() == mio::Token(0) && res.readiness().is_readable());
-                    Ok(())
-                },
-                None => Err(RecvError::Empty),
+        let mut remains = timeout;
+        'outer: loop {
+            let now = Instant::now();
+            self.poll.poll(&mut self.events, remains).map_err(|e| RecvError::Io(e))?;
+            for event in self.events.iter() {
+                assert_eq!(event.token(), mio::Token(0));
+                assert!(event.readiness().is_readable());
+                break 'outer Ok(())
             }
-        })
+            match remains {
+                Some(ref mut to) => {
+                    let elapsed = now.elapsed();
+                    if elapsed >= *to {
+                        break 'outer Err(RecvError::Empty);
+                    } else {
+                        *to -= elapsed;
+                    }
+                },
+                None => (),
+            }
+        }
+        
     }
 }
 
@@ -413,5 +426,76 @@ mod test {
             hdl = true;
         }
         assert!(hdl);
+    }
+
+    #[test]
+    fn poll_recv_twice() {
+        let (tx, rx) = channel();
+
+        let thr = thread::spawn(move || {
+            let poll = Poll::new().unwrap();
+            let mut events = Events::with_capacity(16);
+
+            poll.register(&rx, Token(0), Ready::readable(), PollOpt::edge()).unwrap();
+
+            let mut i = 0;
+            'outer: loop {
+                poll.poll(&mut events, Some(Duration::from_secs(10))).unwrap();
+                for event in events.iter() {
+                    assert_eq!(event.token().0, 0);
+                    assert!(event.readiness().is_readable());
+                    'inner: loop {
+                        match rx.try_recv() {
+                            Ok(n) => {
+                                assert_eq!(n, i);
+                                i += 1;
+                                if i >= 2 {
+                                    break 'outer;
+                                }
+                            },
+                            Err(e) => match e {
+                                TryRecvError::Empty => break 'inner,
+                                TryRecvError::Disconnected => panic!(),
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        tx.send(0).unwrap();
+
+        thread::sleep(Duration::from_millis(10));
+
+        tx.send(1).unwrap();
+
+        thr.join().unwrap();
+    }
+
+    #[test]
+    fn pollrecv_twice() {
+        let (tx, rx) = channel();
+
+        let thr = thread::spawn(move || {
+            let mut prx = PollReceiver::new(&rx).unwrap();
+
+            assert_eq!(
+                prx.recv(Some(Duration::from_secs(10))).unwrap(),
+                0
+            );
+
+            assert_eq!(
+                prx.recv(Some(Duration::from_secs(10))).unwrap(),
+                1
+            );
+        });
+
+        tx.send(0).unwrap();
+
+        thread::sleep(Duration::from_millis(10));
+
+        tx.send(1).unwrap();
+
+        thr.join().unwrap();
     }
 }
