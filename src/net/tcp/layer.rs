@@ -77,8 +77,8 @@ pub struct Layer<N: Notifier<Msg=R>, R: From<Rx>> {
     txrb: Ew<Producer>,
     rxrb: Ew<Consumer>,
     eid_base: Eid,
-    txbuf: Buffer,
-    rxbuf: Buffer,
+    txbuf: Option<Buffer>,
+    rxbuf: Option<Buffer>,
 }
 
 impl<N: Notifier<Msg=R>, R: From<Rx>> Layer<N, R> {
@@ -90,8 +90,8 @@ impl<N: Notifier<Msg=R>, R: From<Rx>> Layer<N, R> {
             txrb: Ew::new(txrb, eid_base + EID_BUF_TX),
             rxrb: Ew::new(rxrb, eid_base + EID_BUF_RX),
             eid_base,
-            txbuf: Buffer::new(BUF_SIZE),
-            rxbuf: Buffer::new(BUF_SIZE),
+            txbuf: Some(Buffer::new(BUF_SIZE)),
+            rxbuf: Some(Buffer::new(BUF_SIZE)),
         }
     }
 
@@ -106,14 +106,43 @@ impl<N: Notifier<Msg=R>, R: From<Rx>> Layer<N, R> {
         }
     }
 
+    fn read_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<(Ready, Ready)> {
+        Ok(Ready::writable())
+    }
+
+    fn write_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<(Ready, Ready)> {
+        Ok(0)
+    }
+
     fn process_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
-        let (mut r, mut w) = (false, false);
+        let mut ready = Ready::empty();
+        if ctrl.readiness().is_writable() {
+            match self.txbuf.take().unwrap() {
+                Buffer::Empty(ebuf) => match self.socket {
+                    Some(sock) => {
+                        let (buf, res) = ebuf.read(&mut sock.handle);
+                        match buf {
+                            Buffer::Empty
+                        }
+                        self.txbuf = Some(buf);
+
+                    },
+                    None => (), // maybe socket was deregistered
+                },
+                Buffer::Occupied(obuf) => (),
+            }
+        }
         if ctrl.readiness().is_readable() {
             
         }
-        if ctrl.readiness().is_writable() {
-            
-        }
+        Ok(())
+    }
+
+    fn process_txbuf(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        Ok(())
+    }
+
+    fn process_rxbuf(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
         Ok(())
     }
 }

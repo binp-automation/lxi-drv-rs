@@ -1,57 +1,47 @@
 use std::io::{self, Read, Write};
 
 
-pub enum Buffer {
-    Empty(EmptyBuffer),
-    Occupied(OccupiedBuffer),
+pub struct Buffer {
+    pub data: Vec<u8>,
+    pub begin: usize,
+    pub end: usize,
 }
 
 impl Buffer {
-    pub fn new(capacity: usize) -> Buffer {
-        Buffer::Empty(EmptyBuffer { data: Some(vec!(0; capacity)) })
-    }
-}
-
-pub struct EmptyBuffer {
-    data: Option<Vec<u8>>,
-}
-
-impl EmptyBuffer {
-    pub fn read(mut self, r: &mut Read) -> io::Result<Buffer> {
-        let n = r.read(self.data.as_mut().unwrap())?;
-        if n > 0 {
-            Ok(Buffer::Occupied(OccupiedBuffer {
-                data: Some(self.data.take().unwrap()),
-                begin: 0, end: n,
-            }))
-        } else {
-            Ok(Buffer::Empty(self))
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            data: vec!(0; capacity),
+            begin: 0,
+            end: 0,
         }
     }
 }
 
-pub struct OccupiedBuffer {
-    data: Option<Vec<u8>>,
-    begin: usize,
-    end: usize,
-}
+impl Buffer {
+    pub fn read(&mut self, r: &mut Read) -> io::Result<usize> {
+        match r.read(&mut self.data[self.end..self.data.len()]) {
+            Ok(n) => {
+                self.end += n;
+                debug_assert!(self.end <= self.data.len());
+                Ok(n)
+            },
+            e @ Err(_) => e,
+        }
 
-impl OccupiedBuffer {
-    pub fn write(mut self, w: &mut Write) -> io::Result<Buffer> {
-        let n = w.write(&self.data.as_ref().unwrap()[self.begin..self.end])?;
-        if n > 0 {
-            if n == self.end - self.begin {
-                Ok(Buffer::Empty(EmptyBuffer {
-                    data: Some(self.data.take().unwrap()),
-                }))
-            } else if n < self.end - self.begin {
+    }
+
+    pub fn write(&mut self, w: &mut Write) -> io::Result<usize> {
+        match w.write(&self.data[self.begin..self.end]) {
+            Ok(n) => {
                 self.begin += n;
-                Ok(Buffer::Occupied(self))
-            } else {
-                unreachable!()
-            }
-        } else {
-            Ok(Buffer::Occupied(self))
+                debug_assert!(self.begin <= self.end);
+                if self.begin == self.end {
+                    self.begin = 0;
+                    self.end = 0;
+                }
+                Ok(n)
+            },
+            e @ Err(_) => e,
         }
     }
 }
