@@ -89,6 +89,10 @@ impl<
     fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
         self.inner.process(ctrl)
     }
+
+    fn commit(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        self.inner.commit(ctrl)
+    }
 }
 
 impl<
@@ -136,6 +140,10 @@ impl<
     }
 
     fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        Ok(())
+    }
+
+    fn commit(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
         Ok(())
     }
 }

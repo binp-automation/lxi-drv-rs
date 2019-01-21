@@ -20,6 +20,7 @@ struct Context {
 
     to_add: Vec<Box<dyn Proxy + Send>>,
     to_del: BTreeSet<Id>,
+    to_commit: BTreeSet<Id>,
 
     exit: bool,
 }
@@ -30,6 +31,7 @@ impl Context {
             events: Some(mio::Events::with_capacity(capacity)),
             to_add: Vec::new(),
             to_del: BTreeSet::new(),
+            to_commit: BTreeSet::new(),
             exit: false,
         }
     }
@@ -40,6 +42,10 @@ impl Context {
 
     fn del(&mut self, id: Id) {
         self.to_del.insert(id);
+    }
+
+    fn proc(&mut self, id: Id) {
+        self.to_commit.insert(id);
     }
 }
 
@@ -136,6 +142,8 @@ impl EventLoop {
                     proxy.process(&mut ctrl).and_then(|_| {
                         if ctrl.is_closed() {
                             ctx.del(id);
+                        } else {
+                            ctx.proc(id);
                         }
                         Ok(())
                     })
@@ -148,7 +156,7 @@ impl EventLoop {
             None => Err(IdError::Missing.into()),
         }
     }
-    
+
     fn process_self(&mut self, ctx: &mut Context, ready: mio::Ready, eid: Eid) -> ::Result<()> {
         assert_eq!(eid, 0);
         assert!(ready.is_readable());
@@ -201,6 +209,13 @@ impl EventLoop {
                 result = Err(e);
             });
         }
+
+        for id in ctx.to_commit.iter() {
+            self.commit_proxy(*id).map(|_| ()).unwrap_or_else(|e| {
+                result = Err(e);
+            });
+        }
+        ctx.to_commit.clear();
 
         for id in ctx.to_del.iter() {
             self.detach(*id).map(|_| ()).unwrap_or_else(|e| {

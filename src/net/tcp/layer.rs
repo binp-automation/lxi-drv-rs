@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use mio::{Ready, net::{TcpStream}};
 
-use mio_byte_fifo::{Producer, Consumer};
+use mio_byte_fifo::{Producer, Consumer, ReadTransmit, WriteTransmit};
 
 use ::error::{IdError};
 use ::proxy::{
@@ -21,8 +21,6 @@ use ::proxy::{
 };
 
 use super::super::{error::{Error as NetError}, layer::{Layer as RawLayer, Notifier}};
-
-use super::buffer::{Buffer, EmptyBuffer, OccupiedBuffer};
 
 
 const EID_TCP_SOCK: Eid = 0;
@@ -74,24 +72,20 @@ pub struct Layer<N: Notifier<Msg=R>, R: From<Rx>> {
     opt: Opt,
     sock: Option<Sock>,
     msgr: N,
-    txrb: Ew<Producer>,
-    rxrb: Ew<Consumer>,
+    txbuf: Ew<Producer>,
+    rxbuf: Ew<Consumer>,
     eid_base: Eid,
-    txbuf: Option<Buffer>,
-    rxbuf: Option<Buffer>,
 }
 
 impl<N: Notifier<Msg=R>, R: From<Rx>> Layer<N, R> {
-    pub fn new(msgr: N, txrb: Producer, rxrb: Consumer, eid_base: Eid) -> Self {
+    pub fn new(msgr: N, txbuf: Producer, rxbuf: Consumer, eid_base: Eid) -> Self {
         Self {
             opt: Opt::default(),
             sock: None,
             msgr: msgr,
-            txrb: Ew::new(txrb, eid_base + EID_BUF_TX),
-            rxrb: Ew::new(rxrb, eid_base + EID_BUF_RX),
+            txbuf: Ew::new(txbuf, eid_base + EID_BUF_TX),
+            rxbuf: Ew::new(rxbuf, eid_base + EID_BUF_RX),
             eid_base,
-            txbuf: Some(Buffer::new(BUF_SIZE)),
-            rxbuf: Some(Buffer::new(BUF_SIZE)),
         }
     }
 
@@ -106,31 +100,10 @@ impl<N: Notifier<Msg=R>, R: From<Rx>> Layer<N, R> {
         }
     }
 
-    fn read_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<(Ready, Ready)> {
-        Ok(Ready::writable())
-    }
-
-    fn write_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<(Ready, Ready)> {
-        Ok(0)
-    }
-
     fn process_socket(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
         let mut ready = Ready::empty();
         if ctrl.readiness().is_writable() {
-            match self.txbuf.take().unwrap() {
-                Buffer::Empty(ebuf) => match self.socket {
-                    Some(sock) => {
-                        let (buf, res) = ebuf.read(&mut sock.handle);
-                        match buf {
-                            Buffer::Empty
-                        }
-                        self.txbuf = Some(buf);
-
-                    },
-                    None => (), // maybe socket was deregistered
-                },
-                Buffer::Occupied(obuf) => (),
-            }
+            self.rxbuf.read_transmit()
         }
         if ctrl.readiness().is_readable() {
             
@@ -192,6 +165,9 @@ impl<N: Notifier<Msg=R>, R: From<Rx>> RawLayer for Layer<N, R> {
             EID_TCP_SOCK => self.process_socket(ctrl),
             _ => Err(IdError::Bad.into()),
         }
+    }
+    fn commit(&mut self, ctrl: &mut ProcessControl) -> ::Result<()> {
+        Ok(())
     }
 }
 

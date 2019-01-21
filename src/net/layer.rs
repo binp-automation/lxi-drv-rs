@@ -50,6 +50,7 @@ pub trait Layer {
     }
 
     fn process(&mut self, ctrl: &mut ProcessControl) -> ::Result<()>;
+    fn commit(&mut self, ctrl: &mut ProcessControl) -> ::Result<()>;
 }
 
 pub trait Notifier {

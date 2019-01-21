@@ -6,6 +6,7 @@ pub trait Proxy {
     fn detach(&mut self, ctrl: &mut control::Detach) -> ::Result<()>;
 
     fn process(&mut self, ctrl: &mut control::Process) -> ::Result<()>;
+    fn commit(&mut self, ctrl: &mut control::Process) -> ::Result<()>;
 }
 
 

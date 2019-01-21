@@ -121,6 +121,10 @@ impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> p::Proxy for Proxy<P, T, R> {
             _ => self.user.process(ctrl),
         }
     }
+
+    fn commit(&mut self, ctrl: &mut control::Process) -> ::Result<()> {
+        Ok(())
+    }
 }
 
 impl<P: u::Proxy<T, R>, T: u::Tx, R: u::Rx> Drop for Proxy<P, T, R> {

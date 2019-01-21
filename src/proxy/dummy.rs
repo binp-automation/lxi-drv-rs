@@ -29,6 +29,10 @@ impl p::Proxy for Proxy {
     fn process(&mut self, _ctrl: &mut control::Process) -> ::Result<()> {
         Ok(())
     }
+
+    fn commit(&mut self, _ctrl: &mut control::Process) -> ::Result<()> {
+        Ok(())
+    }
 }
 
 impl u::Proxy<Tx, Rx> for Proxy {
